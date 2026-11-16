@@ -42,6 +42,7 @@ RUN pacman -Syu --noconfirm --needed \
     gtk4 \
     libsoup3 \
     glib2 \
+    glib2-devel \
     cairo \
     pango \
     gdk-pixbuf2 \
