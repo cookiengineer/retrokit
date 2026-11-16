@@ -10,7 +10,7 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (9,849 rows, 39 features).
+- Generated manifest: `manifest/divergence.tsv` (10,002 rows, 39 features).
 - The manifest now also records the new upstream WebXR/WebGPU-XR files and
   the WebXR/systemd/touch-bar migration edits.
 
@@ -60,10 +60,13 @@ Completed feature commits on `migrate/2.54`:
   stack, the WPEPlatform gamepad API, the `ENABLE_GAMEPAD` option and the
   `libmanette` dependency. `equivalence --feature gamepad` passes with 0
   errors and 0 warnings over 336 entries; the leak scan is clean.
+- **Device Motion/Orientation** — removed both sensor APIs, their permission
+  flow, providers and build options. `OrientationNotifier` and interface
+  orientation plumbing are retained for camera frame rotation.
+  `equivalence --feature device-sensors` passes with 0 errors and 0 warnings
+  over 260 entries; the leak scan is clean.
 
-Device Motion/Orientation is next, then Geolocation. Curate the
-`device-sensors` candidate before applying it: it contains `PermissionName.idl`
-values that belong to other features.
+Geolocation is next, including the Geoclue integration.
 
 ## Workflow
 

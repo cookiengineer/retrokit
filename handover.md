@@ -42,6 +42,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+799333ead Remove Device Motion and Orientation APIs
+509931647 Document Gamepad removal and next steps
 eea8c5a8e Remove Gamepad API
 98e4d3fcb Document FTP removal and next steps
 aad3b2584 Remove FTP Support
@@ -137,7 +139,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **9,849 rows across 39 features**. The manifest covers
+It currently contains **10,002 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for completed features.
 
@@ -290,26 +292,48 @@ Notes:
 - The `gamepad` candidate contained bogus `CMakeLists.txt` rows from the
   net-diff bootstrap; they were removed from the manifest.
 
+### Device Motion and Orientation
+
+Commit: `799333ead Remove Device Motion and Orientation APIs`
+
+Removed:
+
+- WebCore `DeviceMotion*`/`DeviceOrientation*` clients, controllers, data
+  classes, events, IDL, the access controller and mock provider.
+- Device event names, bindings, builtin names, DOM window handlers, the
+  `onorientationchange` attribute, `window.orientation` compat IDL, the
+  `DeviceOrientation Events` feature entry and the three sensor permission
+  names (`accelerometer`, `gyroscope`, `magnetometer`).
+- Preferences, `ENABLE_DEVICE_ORIENTATION`/`ENABLE_ORIENTATION_EVENTS`, the
+  related allow/deny callbacks, website-policy state and data-store clearing
+  API.
+- WebKit's device-orientation update provider, permission proxies and
+  iOS/Cocoa/WebKitLegacy provider implementations.
+
+Retained intentionally:
+
+- `OrientationNotifier`, `LocalFrame::orientationChanged` and
+  `WebPage::setDeviceOrientation` are interface/camera orientation plumbing,
+  not the DeviceOrientation web API. They keep camera frame rotation working
+  and must not be deleted with this feature.
+
+Verification:
+
+```text
+equivalence --feature device-sensors: 260 entries, 0 errors, 0 warnings
+leaks --feature device-sensors:       0 residual occurrences
+make build DISTRO=debian:             success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:             success
+```
+
 ## 5. Next steps
 
-### Next: Device Motion and Orientation
+### Next: Geolocation
 
-Gamepad is done. The next fingerprinting cleanup is the Device Motion and
-Orientation API pair, which is smaller than Geolocation and self-contained.
-
-- Remove `Source/WebCore/dom/DeviceMotion*`, `DeviceOrientation*` and the
-  related navigator/window IDL, clients and mock providers.
-- Curate the `device-sensors` candidate first: it currently contains
-  `PermissionName.idl` enum values (`camera`, `bluetooth`, `geolocation`, …)
-  that belong to other features and must not be removed here.
-- Remove `DEVICE_ORIENTATION`/`ORIENTATION_EVENTS` build flags and preferences
-  only after confirming nothing else uses them.
-
-### Then: Geolocation
-
-After device sensors, remove Geolocation and the Geoclue integration. This is
-larger: it covers the WebCore API, the UI-process Geoclue provider, the GLib
-geolocation manager, IPC messages, settings and permission plumbing.
+Device Motion/Orientation is done. The next feature is Geolocation, including
+the Geoclue integration. It covers the WebCore API, the UI-process Geoclue
+provider, the GLib geolocation manager, IPC messages, settings and permission
+plumbing.
 
 ### Then: remaining features
 
@@ -318,8 +342,8 @@ with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
 
 Suggested order:
 
-1. Device Motion/Orientation, then Geolocation.
-2. Remaining platform and dependency removals (libsecret, libnotify, geoclue).
+1. Geolocation (including Geoclue).
+2. Remaining platform and dependency removals (libsecret, libnotify).
 3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
 4. Automation, WebDriver, quirks and user-agent quirks.
 5. Remaining build/behaviour fixes.
@@ -483,7 +507,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 2. `cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck`
 3. `make build DISTRO=debian` (or `archlinux`) to establish a full baseline
    build of the migrated tree.
-4. `./upstreamcheck plan --feature device-sensors --target vendor/2.54.2`
-5. Curate the `device-sensors` candidate, then use `./upstreamcheck migrate
-   --feature device-sensors ...` and verify with `equivalence` and `leaks`.
+4. `./upstreamcheck plan --feature geolocation --target vendor/2.54.2`
+5. Use `./upstreamcheck migrate --feature geolocation ...` and verify with
+   `equivalence` and `leaks`.
 6. Curate `needs-review.tsv` while build iterations run.

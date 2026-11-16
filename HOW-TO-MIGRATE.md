@@ -903,20 +903,34 @@ What happened:
   nested class enums; those rows document intent, while leak tokens guard
   against reappearance.
 
+### Device Motion and Orientation
+
+What happened:
+
+- Removed both sensor APIs, their event names/bindings, permission flow,
+  providers, preferences and build options.
+- `OrientationNotifier`, `LocalFrame::orientationChanged` and
+  `WebPage::setDeviceOrientation` are interface/camera orientation plumbing and
+  were retained; only the web-exposed DeviceMotion/DeviceOrientation layers
+  were removed.
+- The generated binding lists also referenced `HTMLBodyElement+Compat.idl` and
+  `DOMWindow+Compat.idl`; both were part of the `window.orientation` compat
+  surface and had to be removed from CMake and the Xcode file lists too.
+- 260 removal entries, 0 errors, 0 warnings, 0 leaks.
+
 ---
 
 ## 11. Next features
 
 Recommended order:
 
-1. **Device Motion/Orientation** — self-contained fingerprinting API pair.
-   Curate the candidate first; it currently contains `PermissionName.idl`
-   values that belong to other features.
-2. Geolocation (including Geoclue).
-3. Remaining platform and dependency removals (libsecret, libnotify, geoclue).
-4. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-5. Automation, WebDriver, quirks and user-agent quirks.
-6. Remaining build/behaviour fixes.
+1. **Geolocation** — including the Geoclue integration. It covers the WebCore
+   API, the UI-process provider, the GLib geolocation manager, IPC, settings
+   and permission plumbing.
+2. Remaining platform and dependency removals (libsecret, libnotify).
+3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+4. Automation, WebDriver, quirks and user-agent quirks.
+5. Remaining build/behaviour fixes.
 
 Also curate `needs-review.tsv`:
 
@@ -970,16 +984,16 @@ cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck
 ./upstreamcheck report --target vendor/2.54.2 --out manifest/migration-plan.md
 
 # Migrate
-./upstreamcheck migrate --feature device-sensors --target vendor/2.54.2 \
+./upstreamcheck migrate --feature geolocation --target vendor/2.54.2 \
   --out manifest/candidates
-git apply --check manifest/candidates/device-sensors.patch
-git apply manifest/candidates/device-sensors.patch
+git apply --check manifest/candidates/geolocation.patch
+git apply manifest/candidates/geolocation.patch
 # or, if context moved:
-patch -p1 --no-backup-if-mismatch < manifest/candidates/device-sensors.patch
+patch -p1 --no-backup-if-mismatch < manifest/candidates/geolocation.patch
 
 # Inspect fallout
-./upstreamcheck refs --feature device-sensors --limit 100
-./upstreamcheck leaks --fork HEAD --feature device-sensors
+./upstreamcheck refs --feature geolocation --limit 100
+./upstreamcheck leaks --fork HEAD --feature geolocation
 
 # Build
 make image DISTRO=debian
@@ -993,9 +1007,9 @@ make ccache-stats DISTRO=debian
 make ccache-clean DISTRO=debian
 
 # Verify and commit
-./upstreamcheck equivalence --fork HEAD --feature device-sensors
+./upstreamcheck equivalence --fork HEAD --feature geolocation
 git add -A Source Tools Helpers/upstreamcheck/manifest
-git commit -m ':unicorn: Remove Device Motion and Orientation APIs'
+git commit -m ':unicorn: Remove Geolocation API'
 ```
 
 ---
