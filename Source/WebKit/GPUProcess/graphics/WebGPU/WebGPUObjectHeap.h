@@ -185,7 +185,7 @@ private:
         IPC::ScopedActiveMessageReceiveQueue<RemoteSampler>,
         IPC::ScopedActiveMessageReceiveQueue<RemoteShaderModule>,
         IPC::ScopedActiveMessageReceiveQueue<RemoteTexture>,
-        IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView>,
+        IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView>
     >;
 
     HashMap<WebGPUIdentifier, Object> m_objects;

@@ -9224,7 +9224,7 @@ webxr	config_line	WebXRLayer conditional=WEBXR	Source/WebCore/dom/EventTargetFac
 webxr	config_line	WebXRSession conditional=WEBXR	Source/WebCore/dom/EventTargetFactory.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=67; commit=70c5c9a54927
 webxr	config_line	WebXRSpace conditional=WEBXR	Source/WebCore/dom/EventTargetFactory.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=68; commit=70c5c9a54927
 webxr	config_line	WebXRSystem conditional=WEBXR	Source/WebCore/dom/EventTargetFactory.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=69; commit=70c5c9a54927
-webxr	enum_value	WebCore::TaskSource::Geolocation	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=35
+geolocation	enum_value	WebCore::TaskSource::Geolocation	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=35; belongs to Geolocation, not WebXR
 webxr	enum_value	WebCore::TaskSource::WebXR	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=47
 webxr	file	-	Source/WebCore/dom/TaskSource.h	modified	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	build_ref	"url": "https://immersive-web.github.io/webxr/",	Source/WebCore/features.json	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=783; commit=70c5c9a54927

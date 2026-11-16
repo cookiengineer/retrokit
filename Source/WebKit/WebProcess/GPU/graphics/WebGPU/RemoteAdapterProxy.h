@@ -43,7 +43,9 @@ class ConvertToBackingContext;
 class RemoteAdapterProxy final : public WebCore::WebGPU::Adapter {
     WTF_MAKE_TZONE_ALLOCATED(RemoteAdapterProxy);
 public:
+    static Ref<RemoteAdapterProxy> create(String&& name, WebCore::WebGPU::SupportedFeatures& features, WebCore::WebGPU::SupportedLimits& limits, bool isFallbackAdapter, RemoteGPUProxy& parent, ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier, uint32_t subgroupMinSize, uint32_t subgroupMaxSize)
     {
+        return adoptRef(*new RemoteAdapterProxy(WTF::move(name), features, limits, isFallbackAdapter, parent, convertToBackingContext, identifier, subgroupMinSize, subgroupMaxSize));
     }
 
     virtual ~RemoteAdapterProxy();
@@ -54,6 +56,7 @@ public:
 private:
     friend class DowncastConvertToBackingContext;
 
+    RemoteAdapterProxy(String&& name, WebCore::WebGPU::SupportedFeatures&, WebCore::WebGPU::SupportedLimits&, bool isFallbackAdapter, RemoteGPUProxy&, ConvertToBackingContext&, WebGPUIdentifier, uint32_t subgroupMinSize, uint32_t subgroupMaxSize);
 
     RemoteAdapterProxy(const RemoteAdapterProxy&) = delete;
     RemoteAdapterProxy(RemoteAdapterProxy&&) = delete;

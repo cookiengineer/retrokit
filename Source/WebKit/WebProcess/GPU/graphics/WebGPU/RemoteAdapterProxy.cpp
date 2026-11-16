@@ -37,6 +37,7 @@ namespace WebKit::WebGPU {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAdapterProxy);
 
+RemoteAdapterProxy::RemoteAdapterProxy(String&& name, WebCore::WebGPU::SupportedFeatures& features, WebCore::WebGPU::SupportedLimits& limits, bool isFallbackAdapter, RemoteGPUProxy& parent, ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier, uint32_t subgroupMinSize, uint32_t subgroupMaxSize)
     : Adapter(WTF::move(name), features, limits, isFallbackAdapter, subgroupMinSize, subgroupMaxSize)
     , m_backing(identifier)
     , m_convertToBackingContext(convertToBackingContext)

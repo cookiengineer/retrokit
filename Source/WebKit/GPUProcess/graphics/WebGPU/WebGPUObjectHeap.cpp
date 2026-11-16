@@ -426,26 +426,6 @@ WeakPtr<WebCore::WebGPU::TextureView> ObjectHeap::convertTextureViewFromBacking(
     return &std::get<IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView>>(iterator->value)->backing();
 }
 
-{
-    auto iterator = m_objects.find(identifier);
-        return nullptr;
-}
-
-{
-    auto iterator = m_objects.find(identifier);
-        return nullptr;
-}
-
-{
-    auto iterator = m_objects.find(identifier);
-        return nullptr;
-}
-
-{
-    auto iterator = m_objects.find(identifier);
-        return nullptr;
-}
-
 ObjectHeap::ExistsAndValid ObjectHeap::objectExistsAndValid(const WebCore::WebGPU::GPU& gpu, WebGPUIdentifier identifier) const
 {
     ExistsAndValid result;
