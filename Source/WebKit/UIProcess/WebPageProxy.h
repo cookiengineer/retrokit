@@ -325,7 +325,6 @@ struct MediaPlayerClientIdentifierType;
 struct MediaPlayerIdentifierType;
 struct MediaSessionIdentifierType;
 struct MediaStreamRequest;
-struct MediaUsageInfo;
 struct MessageWithMessagePorts;
 struct NavigationIdentifierType;
 struct NotificationData;
@@ -514,7 +513,6 @@ class ListDataObserver;
 class MediaCapability;
 class MediaKeySystemPermissionRequestManagerProxy;
 class MediaSessionCoordinatorProxyPrivate;
-class MediaUsageManager;
 class NativeWebGestureEvent;
 class NativeWebKeyboardEvent;
 class NativeWebMouseEvent;
@@ -2478,12 +2476,6 @@ public:
     void platformDidSelectItemFromActiveContextMenu(const WebContextMenuItemData&, CompletionHandler<void()>&&);
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-    MediaUsageManager& mediaUsageManager() LIFETIME_BOUND;
-    void addMediaUsageManagerSession(WebCore::MediaSessionIdentifier, const String&, const URL&);
-    void updateMediaUsageManagerSessionState(WebCore::MediaSessionIdentifier, const WebCore::MediaUsageInfo&);
-    void removeMediaUsageManagerSession(WebCore::MediaSessionIdentifier);
-#endif
 
 #if PLATFORM(VISION)
     void enterExternalPlaybackForNowPlayingMediaSession(CompletionHandler<void(bool, UIViewController *)>&&, CompletionHandler<void(bool)>&&);
@@ -3806,9 +3798,6 @@ private:
     bool m_mockVideoPresentationModeEnabled { false };
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-    std::unique_ptr<MediaUsageManager> m_mediaUsageManager;
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     std::optional<WebCore::InputMode> m_pendingInputModeChange;

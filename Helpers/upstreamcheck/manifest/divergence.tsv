@@ -4223,17 +4223,52 @@ media-statistics	file	-	Source/WebKit/WebProcess/GPU/media/MediaPlayerPrivateRem
 media-statistics	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_STATISTICS PRIVATE OFF)	Source/cmake/OptionsFTW.cmake	removed	source	e0910cbebfacb56daab67c5683717809cd68465f	line=106; commit=e0910cbebfac
 media-statistics	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_STATISTICS PUBLIC ON)	Source/cmake/OptionsWin.cmake	removed	source	e0910cbebfacb56daab67c5683717809cd68465f	line=44; commit=e0910cbebfac
 media-statistics	flag	WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_STATISTICS "Toggle Media Statistics support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	e0910cbebfacb56daab67c5683717809cd68465f	line=162; commit=e0910cbebfac
+media-usage	file	-	Source/WTF/wtf/PlatformEnableCocoa.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WTF/wtf/PlatformHave.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
 media-usage	build_ref	platform/graphics/MediaUsageInfo.h	Source/WebCore/Headers.cmake	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	line=1189; commit=9dbe247f9b5e
+media-usage	file	-	Source/WebCore/Headers.cmake	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/PAL/pal/PlatformCocoa.cmake	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/PAL/pal/SourcesCocoa.txt	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/PAL/pal/cocoa/UsageTrackingSoftLink.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54); deleted file
+media-usage	file	-	Source/WebCore/PAL/pal/cocoa/UsageTrackingSoftLink.mm	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54); deleted file
+media-usage	file	-	Source/WebCore/WebCoreJSBindingsPrefix.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	behavior	media-usage-tracking-removed	Source/WebCore/html/MediaElementSession.cpp	modified	source	manual:media-usage-2.54	Media usage tracking and the UI-process MediaUsageManager were removed
 media-usage	file	-	Source/WebCore/html/MediaElementSession.cpp	modified	source	9dc413b04d68cbbbd614cdb08a9437ae7ebbb8b1	origin=9dc413b04d68cbbbd614cdb08a9437ae7ebbb8b1 :bug: Fixes
 media-usage	file	-	Source/WebCore/html/MediaElementSession.h	modified	source	9dbe247f9b5e258396080bbdc144365954712a94	origin=9dbe247f9b5e258396080bbdc144365954712a94 :unicorn: Remove Media Usage API
+media-usage	method	WebCore::MediaElementSession::mediaUsageInfo	Source/WebCore/html/MediaElementSession.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54)
+media-usage	method	WebCore::MediaElementSession::updateMediaUsageIfChanged	Source/WebCore/html/MediaElementSession.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54)
+media-usage	file	-	Source/WebCore/page/ChromeClient.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/platform/audio/PlatformMediaSessionInterface.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/platform/audio/cocoa/MediaSessionManagerCocoa.mm	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/platform/audio/glib/MediaSessionManagerGLib.cpp	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	class	WebCore::MediaUsageInfo	Source/WebCore/platform/graphics/MediaUsageInfo.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54)
 media-usage	file	-	Source/WebCore/platform/graphics/MediaUsageInfo.h	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	origin=9dbe247f9b5e258396080bbdc144365954712a94 :unicorn: Remove Media Usage API
+media-usage	file	-	Source/WebCore/testing/Internals.cpp	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/testing/Internals.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebCore/testing/Internals.idl	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	struct	WebCore::MediaUsageInfo	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54)
 media-usage	build_ref	UIProcess/Media/MediaUsageManager.cpp	Source/WebKit/Sources.txt	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	line=404; commit=9dbe247f9b5e
+media-usage	file	-	Source/WebKit/Sources.txt	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
 media-usage	build_ref	UIProcess/Media/cocoa/MediaUsageManagerCocoa.mm	Source/WebKit/SourcesCocoa.txt	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	line=480; commit=9dbe247f9b5e
+media-usage	file	-	Source/WebKit/SourcesCocoa.txt	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/UIProcess/Cocoa/WebPageProxyCocoa.mm	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
 media-usage	file	-	Source/WebKit/UIProcess/Media/MediaUsageManager.cpp	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	origin=9dbe247f9b5e258396080bbdc144365954712a94 :unicorn: Remove Media Usage API
+media-usage	class	WebKit::MediaUsageManager	Source/WebKit/UIProcess/Media/MediaUsageManager.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54)
 media-usage	file	-	Source/WebKit/UIProcess/Media/MediaUsageManager.h	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	origin=9dbe247f9b5e258396080bbdc144365954712a94 :unicorn: Remove Media Usage API
+media-usage	class	WebKit::MediaUsageManagerCocoa	Source/WebKit/UIProcess/Media/cocoa/MediaUsageManagerCocoa.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54)
+media-usage	file	-	Source/WebKit/UIProcess/Media/cocoa/MediaUsageManagerCocoa.h	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54); deleted file
+media-usage	file	-	Source/WebKit/UIProcess/Media/cocoa/MediaUsageManagerCocoa.mm	removed	source	manual:media-usage-2.54	Media Usage API removal (2.54); deleted file
+media-usage	file	-	Source/WebKit/UIProcess/WebPageProxy.cpp	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/UIProcess/WebPageProxy.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
 media-usage	config_line	AddMediaUsageManagerSession(WebCore::MediaSessionIdentifier identifier, String bundleIdentifier, URL pageURL);	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	line=478; commit=9dbe247f9b5e
 media-usage	config_line	RemoveMediaUsageManagerSession(WebCore::MediaSessionIdentifier identifier);	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	line=480; commit=9dbe247f9b5e
 media-usage	config_line	UpdateMediaUsageManagerSessionState(WebCore::MediaSessionIdentifier identifier, struct WebCore::MediaUsageInfo info);	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	9dbe247f9b5e258396080bbdc144365954712a94	line=479; commit=9dbe247f9b5e
+media-usage	file	-	Source/WebKit/UIProcess/WebPageProxy.messages.in	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.cpp	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/WebProcess/WebPage/WebPage.cpp	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
+media-usage	file	-	Source/WebKit/WebProcess/WebPage/WebPage.h	modified	source	manual:media-usage-2.54	Media Usage API removal (2.54); integration change
 payment	pref	ApplePayCapabilityDisclosureAllowed:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=278; commit=594dffd780c4
 payment	pref	ApplePayEnabled:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=290; commit=594dffd780c4
 payment	pref	condition: ENABLE(APPLE_PAY)	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=280; commit=594dffd780c4; line=292; commit=594dffd780c4

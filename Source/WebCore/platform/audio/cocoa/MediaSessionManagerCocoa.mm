@@ -269,9 +269,6 @@ void MediaSessionManagerCocoa::scheduleSessionStatusUpdate()
             updateNowPlayingInfo();
         }
 
-        forEachSession([] (auto& session) {
-            session.updateMediaUsageIfChanged();
-        });
     });
 }
 
@@ -337,11 +334,6 @@ void MediaSessionManagerCocoa::setCurrentSession(PlatformMediaSessionInterface& 
 void MediaSessionManagerCocoa::sessionWillEndPlayback(PlatformMediaSessionInterface& session, DelayCallingUpdateNowPlaying delayCallingUpdateNowPlaying)
 {
     PlatformMediaSessionManager::sessionWillEndPlayback(session, delayCallingUpdateNowPlaying);
-
-    enqueueTaskOnMainThread([weakSession = WeakPtr { session }] {
-        if (weakSession)
-            weakSession->updateMediaUsageIfChanged();
-    });
 
     if (delayCallingUpdateNowPlaying == DelayCallingUpdateNowPlaying::No)
         updateNowPlayingInfo();

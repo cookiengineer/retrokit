@@ -313,7 +313,6 @@
 #include "MediaSessionIdentifier.h"
 #include "MediaSessionManagerInterface.h"
 #include "MediaUniqueIdentifier.h"
-#include "MediaUsageInfo.h"
 #include "MessageTargetForTesting.h"
 #include "NowPlayingInfo.h"
 #include "NowPlayingMetadataObserver.h"

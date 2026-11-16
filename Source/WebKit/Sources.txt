@@ -629,7 +629,6 @@ UIProcess/Inspector/Agents/ProxyingNetworkAgent.cpp
 UIProcess/Inspector/Agents/ProxyingPageAgent.cpp
 
 UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp
-UIProcess/Media/MediaUsageManager.cpp
 UIProcess/Media/RemoteMediaSessionClientProxy.cpp
 UIProcess/Media/RemoteMediaSessionCoordinatorProxy.cpp
 UIProcess/Media/RemoteMediaSessionManagerProxy.cpp

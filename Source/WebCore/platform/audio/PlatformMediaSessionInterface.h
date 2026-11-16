@@ -222,8 +222,6 @@ public:
     using PlaybackControlsPurpose = PlatformMediaSessionPlaybackControlsPurpose;
     virtual WeakPtr<PlatformMediaSessionInterface> selectBestMediaSession(const Vector<WeakPtr<PlatformMediaSessionInterface>>&, PlaybackControlsPurpose) = 0;
 
-    virtual void updateMediaUsageIfChanged() { }
-
     virtual bool isLongEnoughForMainContent() const { return false; }
 
     void setMediaSessionIdentifier(MediaSessionIdentifier);

@@ -63,10 +63,6 @@ class WAKResponder;
 OBJC_CLASS NSData;
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-#include <WebCore/MediaSessionIdentifier.h>
-#include <WebCore/MediaUsageInfo.h>
-#endif
 
 
 #if ENABLE(WEB_AUTHN)
@@ -528,11 +524,6 @@ public:
     virtual void mediaEngineChanged(HTMLMediaElement&) { }
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-    virtual void addMediaUsageManagerSession(MediaSessionIdentifier, const String&, const URL&) { }
-    virtual void updateMediaUsageManagerSessionState(MediaSessionIdentifier, const MediaUsageInfo&) { }
-    virtual void removeMediaUsageManagerSession(MediaSessionIdentifier) { }
-#endif
 
     virtual void exitVideoFullscreenForVideoElement(HTMLVideoElement&, CompletionHandler<void(bool)>&& completionHandler = [](bool) { }) { completionHandler(true); }
     virtual void exitVideoFullscreenToModeWithoutAnimation(HTMLVideoElement&, HTMLMediaElementEnums::VideoFullscreenMode) { }

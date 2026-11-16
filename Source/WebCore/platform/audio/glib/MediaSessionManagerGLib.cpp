@@ -157,9 +157,6 @@ void MediaSessionManagerGLib::scheduleSessionStatusUpdate()
         m_nowPlayingManager->setSupportsSeeking(computeSupportsSeeking());
         updateNowPlayingInfo();
 
-        forEachSession([] (auto& session) {
-            session.updateMediaUsageIfChanged();
-        });
     });
 }
 
@@ -218,11 +215,6 @@ void MediaSessionManagerGLib::setCurrentSession(PlatformMediaSessionInterface& s
 void MediaSessionManagerGLib::sessionWillEndPlayback(PlatformMediaSessionInterface& session, DelayCallingUpdateNowPlaying delayCallingUpdateNowPlaying)
 {
     PlatformMediaSessionManager::sessionWillEndPlayback(session, delayCallingUpdateNowPlaying);
-
-    callOnMainThread([weakSession = WeakPtr { session }] {
-        if (weakSession)
-            weakSession->updateMediaUsageIfChanged();
-    });
 
     if (delayCallingUpdateNowPlaying == DelayCallingUpdateNowPlaying::No)
         updateNowPlayingInfo();

@@ -30,7 +30,6 @@
 
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/MediaProducer.h>
-#include <WebCore/MediaUsageInfo.h>
 #include <WebCore/PlatformMediaSession.h>
 #include <WebCore/Timer.h>
 #include <memory>
@@ -184,9 +183,6 @@ public:
 
     std::optional<NowPlayingInfo> computeNowPlayingInfo() const;
 
-    WEBCORE_EXPORT void updateMediaUsageIfChanged() final;
-    std::optional<MediaUsageInfo> mediaUsageInfo() const { return m_mediaUsageInfo; }
-
 #if !RELEASE_LOG_DISABLED
     static String descriptionForTrack(const VideoTrack&);
     static String descriptionForTrack(const AudioTrack&);
@@ -230,12 +226,8 @@ private:
     void clientDataBufferingTimerFired();
     void updateClientDataBuffering();
 
-    void addMediaUsageManagerSessionIfNecessary();
-
     WeakPtr<HTMLMediaElement> m_element;
     BehaviorRestrictions m_restrictions;
-
-    std::optional<MediaUsageInfo> m_mediaUsageInfo;
 
     bool m_elementIsHiddenUntilVisibleInViewport { false };
     bool m_elementIsHiddenBecauseItWasRemovedFromDOM { false };
@@ -256,9 +248,6 @@ private:
     Timer m_mainContentCheckTimer;
     Timer m_clientDataBufferingTimer;
 
-#if ENABLE(MEDIA_USAGE)
-    bool m_haveAddedMediaUsageManagerSession { false };
-#endif
     
 #if ENABLE(MEDIA_SESSION)
     bool m_isScrubbing { false };

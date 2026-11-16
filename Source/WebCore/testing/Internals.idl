@@ -179,44 +179,6 @@ enum AutoplayPolicy {
 
 [
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
-    Conditional=VIDEO,
-    JSGenerateToJSObject,
-] dictionary MediaUsageState {
-    DOMString mediaURL;
-    boolean isPlaying;
-    boolean canShowControlsManager;
-    boolean canShowNowPlayingControls;
-    boolean isSuspended;
-    boolean isInActiveDocument;
-    boolean isFullscreen;
-    boolean isMuted;
-    boolean isMediaDocumentInMainFrame;
-    boolean isVideo;
-    boolean isAudio;
-    boolean hasVideo;
-    boolean hasAudio;
-    boolean hasRenderer;
-    boolean audioElementWithUserGesture;
-    boolean userHasPlayedAudioBefore;
-    boolean isElementRectMostlyInMainFrame;
-    boolean playbackPermitted;
-    boolean pageMediaPlaybackSuspended;
-    boolean isMediaDocumentAndNotOwnerElement;
-    boolean pageExplicitlyAllowsElementToAutoplayInline;
-    boolean requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted;
-    boolean isVideoAndRequiresUserGestureForVideoRateChange;
-    boolean isAudioAndRequiresUserGestureForAudioRateChange;
-    boolean isVideoAndRequiresUserGestureForVideoDueToLowPowerMode;
-    boolean isVideoAndRequiresUserGestureForVideoDueToAggressiveThermalMitigation;
-    boolean noUserGestureRequired;
-    boolean requiresPlaybackAndIsNotPlaying;
-    boolean hasEverNotifiedAboutPlaying;
-    boolean outsideOfFullscreen;
-    boolean isLargeEnoughForMainContent;
-};
-
-[
-    ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
 ] dictionary FullscreenInsets {
     float top = 0;
     float left = 0;
@@ -1366,7 +1328,6 @@ enum ContentsFormat {
     [Conditional=VIDEO] HTMLMediaElement? bestMediaElementForRemoteControls(PlaybackControlsPurpose purpose);
     [Conditional=VIDEO] MediaSessionState mediaSessionState(HTMLMediaElement element);
 
-    [Conditional=VIDEO] MediaUsageState mediaUsageState(HTMLMediaElement element);
     [Conditional=VIDEO] boolean elementShouldDisplayPosterImage(HTMLVideoElement element);
     [Conditional=VIDEO] readonly attribute unsigned long mediaElementCount;
     [Conditional=VIDEO] undefined setMediaElementVolumeLocked(HTMLMediaElement element, boolean volumeLocked);

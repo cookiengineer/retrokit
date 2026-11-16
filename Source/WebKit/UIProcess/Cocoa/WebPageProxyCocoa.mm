@@ -116,9 +116,6 @@
 #define SAFE_BROWSING_RESULT_CHECK_ADDITIONS false
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-#import "MediaUsageManagerCocoa.h"
-#endif
 
 #if ENABLE(APP_HIGHLIGHTS)
 SOFT_LINK_PRIVATE_FRAMEWORK_OPTIONAL(Synapse)
@@ -800,30 +797,6 @@ void WebPageProxy::didCreateContextInModelProcessForVisibilityPropagation(LayerH
 #endif // ENABLE(MODEL_PROCESS)
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
-#if ENABLE(MEDIA_USAGE)
-MediaUsageManager& WebPageProxy::mediaUsageManager()
-{
-    if (!m_mediaUsageManager)
-        m_mediaUsageManager = MediaUsageManager::create();
-
-    return *m_mediaUsageManager;
-}
-
-void WebPageProxy::addMediaUsageManagerSession(WebCore::MediaSessionIdentifier identifier, const String& bundleIdentifier, const URL& pageURL)
-{
-    mediaUsageManager().addMediaSession(identifier, bundleIdentifier, pageURL);
-}
-
-void WebPageProxy::updateMediaUsageManagerSessionState(WebCore::MediaSessionIdentifier identifier, const WebCore::MediaUsageInfo& info)
-{
-    mediaUsageManager().updateMediaUsage(identifier, info);
-}
-
-void WebPageProxy::removeMediaUsageManagerSession(WebCore::MediaSessionIdentifier identifier)
-{
-    mediaUsageManager().removeMediaSession(identifier);
-}
-#endif
 
 #if PLATFORM(VISION)
 void WebPageProxy::enterExternalPlaybackForNowPlayingMediaSession(CompletionHandler<void(bool, UIViewController *)>&& enterHandler, CompletionHandler<void(bool)>&& exitHandler)

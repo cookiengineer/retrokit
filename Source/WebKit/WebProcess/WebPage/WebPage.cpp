@@ -9506,22 +9506,6 @@ void WebPage::isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags stat
     send(Messages::WebPageProxy::IsPlayingMediaDidChange(state));
 }
 
-#if ENABLE(MEDIA_USAGE)
-void WebPage::addMediaUsageManagerSession(MediaSessionIdentifier identifier, const String& bundleIdentifier, const URL& pageURL)
-{
-    send(Messages::WebPageProxy::AddMediaUsageManagerSession(identifier, bundleIdentifier, pageURL));
-}
-
-void WebPage::updateMediaUsageManagerSessionState(MediaSessionIdentifier identifier, const MediaUsageInfo& usage)
-{
-    send(Messages::WebPageProxy::UpdateMediaUsageManagerSessionState(identifier, usage));
-}
-
-void WebPage::removeMediaUsageManagerSession(MediaSessionIdentifier identifier)
-{
-    send(Messages::WebPageProxy::RemoveMediaUsageManagerSession(identifier));
-}
-#endif // ENABLE(MEDIA_USAGE)
 
 #if ENABLE(IMAGE_ANALYSIS)
 

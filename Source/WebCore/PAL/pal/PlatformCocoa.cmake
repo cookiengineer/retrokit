@@ -38,7 +38,6 @@ list(APPEND PAL_PUBLIC_HEADERS
     cocoa/ScreenTimeSoftLink.h
     cocoa/SpeechSoftLink.h
     cocoa/TranslationUIServicesSoftLink.h
-    cocoa/UsageTrackingSoftLink.h
     cocoa/VisionKitCoreSoftLink.h
     cocoa/VisionSoftLink.h
     cocoa/WebContentRestrictionsSoftLink.h

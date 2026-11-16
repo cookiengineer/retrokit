@@ -46,7 +46,6 @@
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "Logging.h"
-#include "MediaUsageInfo.h"
 #include "Navigator.h"
 #include "NowPlayingInfo.h"
 #include "Page.h"
@@ -201,34 +200,6 @@ MediaElementSession::MediaElementSession(HTMLMediaElement& element)
 
 MediaElementSession::~MediaElementSession()
 {
-#if ENABLE(MEDIA_USAGE)
-    RefPtr element = m_element.get();
-    if (!element)
-        return;
-
-    RefPtr page = element->document().page();
-    if (page && m_haveAddedMediaUsageManagerSession)
-        page->chrome().client().removeMediaUsageManagerSession(mediaSessionIdentifier());
-#endif
-}
-
-void MediaElementSession::addMediaUsageManagerSessionIfNecessary()
-{
-#if ENABLE(MEDIA_USAGE)
-    RefPtr element = m_element.get();
-    if (!element)
-        return;
-
-    if (m_haveAddedMediaUsageManagerSession)
-        return;
-
-    RefPtr page = element->document().page();
-    if (!page)
-        return;
-
-    m_haveAddedMediaUsageManagerSession = true;
-    page->chrome().client().addMediaUsageManagerSession(mediaSessionIdentifier(), element->sourceApplicationIdentifier(), element->document().url());
-#endif
 }
 
 void MediaElementSession::registerWithDocument(Document& document)
@@ -1592,84 +1563,6 @@ std::optional<NowPlayingInfo> MediaElementSession::computeNowPlayingInfo() const
 #endif
 
     return info;
-}
-
-void MediaElementSession::updateMediaUsageIfChanged()
-{
-    RefPtr element = m_element.get();
-    if (!element)
-        return;
-
-    Ref document = element->document();
-    RefPtr page = document->page();
-    if (!page || page->sessionID().isEphemeral())
-        return;
-
-    // Bail out early if the element currently has no source (currentSrc or
-    // srcObject) and neither did the previous state, to avoid doing a large
-    // amount of unnecessary work below.
-    if (!element->hasSource() && (!m_mediaUsageInfo || !m_mediaUsageInfo->hasSource))
-        return;
-
-    bool isOutsideOfFullscreen = false;
-#if ENABLE(FULLSCREEN_API)
-    if (RefPtr documentFullscreen = document->fullscreenIfExists()) {
-        if (RefPtr fullscreenElement = protect(document->fullscreen())->fullscreenElement())
-            isOutsideOfFullscreen = !element->isDescendantOf(*fullscreenElement);
-    }
-#endif
-    bool isAudio = client().presentationType() == MediaType::Audio;
-    bool isVideo = client().presentationType() == MediaType::Video;
-    bool processingUserGesture = document->processingUserGestureForMedia();
-    bool isPlaying = element->isPlaying();
-
-    MediaUsageInfo usage = {
-        element->currentSrc(),
-        element->hasSource(),
-        state() == PlatformMediaSession::State::Playing,
-        canShowControlsManager(PlaybackControlsPurpose::ControlsManager),
-        !page->isVisibleAndActive(),
-        element->isSuspended(),
-        element->inActiveDocument(),
-        element->isFullscreen(),
-        element->muted(),
-        document->isMediaDocument() && (document->frame() && document->frame()->isMainFrame()),
-        isVideo,
-        isAudio,
-        element->hasVideo(),
-        element->hasAudio(),
-        element->hasRenderer(),
-        isAudio && hasBehaviorRestriction(RequireUserGestureToControlControlsManager) && !processingUserGesture,
-        element->hasAudio() && isPlaying && allowsPlaybackControlsForAutoplayingAudio(), // userHasPlayedAudioBefore
-        isElementRectMostlyInMainFrame(*element),
-        !!playbackStateChangePermitted(MediaPlaybackState::Playing),
-        page->mediaPlaybackIsSuspended(),
-        document->isMediaDocument() && !document->ownerElement(),
-        pageExplicitlyAllowsElementToAutoplayInline(*element),
-        requiresFullscreenForVideoPlayback() && !fullscreenPermitted(),
-        isVideo && hasBehaviorRestriction(RequireUserGestureForVideoRateChange) && !processingUserGesture,
-        isAudio && hasBehaviorRestriction(RequireUserGestureForAudioRateChange) && !processingUserGesture && !element->muted() && element->volume(),
-        isVideo && hasBehaviorRestriction(RequireUserGestureForVideoDueToLowPowerMode) && !processingUserGesture,
-        isVideo && hasBehaviorRestriction(RequireUserGestureForVideoDueToAggressiveThermalMitigation) && !processingUserGesture,
-        !hasBehaviorRestriction(RequireUserGestureToControlControlsManager) || processingUserGesture,
-        hasBehaviorRestriction(RequirePlaybackToControlControlsManager) && !isPlaying,
-        element->hasEverNotifiedAboutPlaying(),
-        isOutsideOfFullscreen,
-        isLargeEnoughForMainContent(MediaSessionMainContentPurpose::MediaControls),
-#if PLATFORM(COCOA) && !HAVE(CGS_FIX_FOR_RADAR_97530095)
-        element->isVisibleInViewport()
-#endif
-    };
-
-    if (m_mediaUsageInfo && *m_mediaUsageInfo == usage)
-        return;
-
-    m_mediaUsageInfo = WTF::move(usage);
-
-#if ENABLE(MEDIA_USAGE)
-    addMediaUsageManagerSessionIfNecessary();
-    page->chrome().client().updateMediaUsageManagerSessionState(mediaSessionIdentifier(), *m_mediaUsageInfo);
-#endif
 }
 
 String convertEnumerationToString(const MediaPlaybackDenialReason enumerationValue)

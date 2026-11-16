@@ -16,7 +16,7 @@ maintenance	Maintenance and build fixes	maintenance
 media-capture	Media Capture and Streams API	removed	SECURITY.md#ecmascript-apis	MEDIA_CAPTURE,MEDIA_STREAM,getUserMedia,MediaStream,MediaDevices
 media-recorder	Media Recorder API	removed	SECURITY.md#ecmascript-apis	MediaRecorder,MEDIA_RECORDER
 media-statistics	Media Statistics API	removed	SECURITY.md#ecmascript-apis	MEDIA_STATISTICS,webkitDecodedFrameCount
-media-usage	Media Usage API	removed	SECURITY.md#ecmascript-apis	MEDIA_USAGE,MediaUsageManager
+media-usage	Media Usage API	removed	SECURITY.md#ecmascript-apis	MEDIA_USAGE,MediaUsage,MediaUsageInfo,MediaUsageManager,MediaUsageManagerCocoa,MediaUsageState,updateMediaUsageIfChanged,mediaUsageInfo,UsageTracking
 misc	Miscellaneous divergence	maintenance		
 payment	Payment and Apple Pay APIs	removed	SECURITY.md#ecmascript-apis	PAYMENT_REQUEST,APPLE_PAY,ApplePay,PaymentRequest
 platform-hurd	GNU/HURD Platform Support	removed	SECURITY.md#target-platforms	HURD,__GNU__

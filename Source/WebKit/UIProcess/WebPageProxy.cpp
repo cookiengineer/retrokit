@@ -417,9 +417,6 @@
 #include "DataDetectionResult.h"
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-#include "MediaUsageManager.h"
-#endif
 
 #if PLATFORM(COCOA)
 #include "DefaultWebBrowserChecks.h"
@@ -3468,10 +3465,6 @@ void WebPageProxy::updateActivityState(OptionSet<ActivityState> flagsToUpdate)
     if (flagsToUpdate & ActivityState::IsInWindow && pageClient->isViewInWindow())
         internals().activityState.add(ActivityState::IsInWindow);
     bool isVisuallyIdle = pageClient->isVisuallyIdle();
-#if PLATFORM(COCOA) && !HAVE(CGS_FIX_FOR_RADAR_97530095) && ENABLE(MEDIA_USAGE)
-    if (pageClient->isMainViewVisible() && m_mediaUsageManager && m_mediaUsageManager->isPlayingVideoInViewport())
-        isVisuallyIdle = false;
-#endif
     if (flagsToUpdate & ActivityState::IsVisuallyIdle && isVisuallyIdle)
         internals().activityState.add(ActivityState::IsVisuallyIdle);
     if (flagsToUpdate & ActivityState::IsAudible && isPlayingAudio() && !(internals().mutedState.contains(MediaProducerMutedState::AudioIsMuted)))
@@ -8842,10 +8835,6 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
     }
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-    if (frame->isMainFrame() && m_mediaUsageManager)
-        m_mediaUsageManager->reset();
-#endif
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     if (frame->isMainFrame()) {
@@ -13798,10 +13787,6 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
 
     m_screenOrientationManager = nullptr;
 
-#if ENABLE(MEDIA_USAGE)
-    if (m_mediaUsageManager)
-        m_mediaUsageManager->reset();
-#endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
     if (resetStateReason != ResetStateReason::NavigationSwap)

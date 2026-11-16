@@ -123,9 +123,6 @@
 #include <WebKitAdditions/PlatformGestureEventMac.h>
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-#include <WebCore/MediaSessionIdentifier.h>
-#endif
 
 #if PLATFORM(COCOA)
 #include "GestureTypes.h"
@@ -334,7 +331,6 @@ struct LiveRegionAnnouncementData;
 struct MarkupExclusionRule;
 struct MediaDeviceHashSalts;
 struct MediaPlayerClientIdentifierType;
-struct MediaUsageInfo;
 struct MessageWithMessagePorts;
 struct NavigationIdentifierType;
 struct NowPlayingInfo;
@@ -1928,11 +1924,6 @@ public:
     bool needsInAppBrowserPrivacyQuirks() { return m_needsInAppBrowserPrivacyQuirks; }
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-    void addMediaUsageManagerSession(WebCore::MediaSessionIdentifier, const String&, const URL&);
-    void updateMediaUsageManagerSessionState(WebCore::MediaSessionIdentifier, const WebCore::MediaUsageInfo&);
-    void removeMediaUsageManagerSession(WebCore::MediaSessionIdentifier);
-#endif
 
     void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags);
 

@@ -5493,43 +5493,6 @@ struct WebCore::DisplayUpdate {
     WebCore::FramesPerSecond updatesPerSecond;
 }
 
-struct WebCore::MediaUsageInfo {
-    URL mediaURL;
-    bool hasSource;
-    bool isPlaying;
-    bool canShowControlsManager;
-    bool canShowNowPlayingControls;
-    bool isSuspended;
-    bool isInActiveDocument;
-    bool isFullscreen;
-    bool isMuted;
-    bool isMediaDocumentInMainFrame;
-    bool isVideo;
-    bool isAudio;
-    bool hasVideo;
-    bool hasAudio;
-    bool hasRenderer;
-    bool audioElementWithUserGesture;
-    bool userHasPlayedAudioBefore;
-    bool isElementRectMostlyInMainFrame;
-    bool playbackPermitted;
-    bool pageMediaPlaybackSuspended;
-    bool isMediaDocumentAndNotOwnerElement;
-    bool pageExplicitlyAllowsElementToAutoplayInline;
-    bool requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted;
-    bool isVideoAndRequiresUserGestureForVideoRateChange;
-    bool isAudioAndRequiresUserGestureForAudioRateChange;
-    bool isVideoAndRequiresUserGestureForVideoDueToLowPowerMode;
-    bool isVideoAndRequiresUserGestureForVideoDueToAggressiveThermalMitigation;
-    bool noUserGestureRequired;
-    bool requiresPlaybackAndIsNotPlaying;
-    bool hasEverNotifiedAboutPlaying;
-    bool outsideOfFullscreen;
-    bool isLargeEnoughForMainContent;
-#if PLATFORM(COCOA) && !HAVE(CGS_FIX_FOR_RADAR_97530095)
-    bool isInViewport;
-#endif
-}
 
 header: <WebCore/NowPlayingInfo.h>
 [CustomHeader] struct WebCore::NowPlayingInfoArtwork {

@@ -326,11 +326,6 @@ private:
     void mediaEngineChanged(WebCore::HTMLMediaElement&) final;
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-    void addMediaUsageManagerSession(WebCore::MediaSessionIdentifier, const String&, const URL&) final;
-    void updateMediaUsageManagerSessionState(WebCore::MediaSessionIdentifier, const WebCore::MediaUsageInfo&) final;
-    void removeMediaUsageManagerSession(WebCore::MediaSessionIdentifier) final;
-#endif
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void exitVideoFullscreenToModeWithoutAnimation(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode) final;

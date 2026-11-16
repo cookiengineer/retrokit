@@ -387,40 +387,6 @@ class Internals final
         bool haveEverRegisteredAsNowPlayingApplication;
     };
 
-    struct MediaUsageState {
-        String mediaURL;
-        bool isPlaying;
-        bool canShowControlsManager;
-        bool canShowNowPlayingControls;
-        bool isSuspended;
-        bool isInActiveDocument;
-        bool isFullscreen;
-        bool isMuted;
-        bool isMediaDocumentInMainFrame;
-        bool isVideo;
-        bool isAudio;
-        bool hasVideo;
-        bool hasAudio;
-        bool hasRenderer;
-        bool audioElementWithUserGesture;
-        bool userHasPlayedAudioBefore;
-        bool isElementRectMostlyInMainFrame;
-        bool playbackPermitted;
-        bool pageMediaPlaybackSuspended;
-        bool isMediaDocumentAndNotOwnerElement;
-        bool pageExplicitlyAllowsElementToAutoplayInline;
-        bool requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted;
-        bool isVideoAndRequiresUserGestureForVideoRateChange;
-        bool isAudioAndRequiresUserGestureForAudioRateChange;
-        bool isVideoAndRequiresUserGestureForVideoDueToLowPowerMode;
-        bool isVideoAndRequiresUserGestureForVideoDueToAggressiveThermalMitigation;
-        bool noUserGestureRequired;
-        bool requiresPlaybackAndIsNotPlaying;
-        bool hasEverNotifiedAboutPlaying;
-        bool outsideOfFullscreen;
-        bool isLargeEnoughForMainContent;
-    };
-
     struct DoViParameterSet {
         String codecName;
         uint16_t bitstreamProfileID;
@@ -1429,7 +1395,6 @@ class Internals final
     ExceptionOr<NowPlayingState> nowPlayingState() const;
     ExceptionOr<double> nowPlayingUpdateInterval() const;
     void setNowPlayingUpdateInterval(double);
-    ExceptionOr<MediaUsageState> mediaUsageState(HTMLMediaElement&) const;
 
     ExceptionOr<bool> elementShouldDisplayPosterImage(HTMLVideoElement&) const;
 

@@ -59,7 +59,6 @@ cocoa/RevealSoftLink.mm @nonARC
 cocoa/ScreenTimeSoftLink.mm @nonARC
 cocoa/SpeechSoftLink.mm @nonARC
 cocoa/TranslationUIServicesSoftLink.mm @nonARC
-cocoa/UsageTrackingSoftLink.mm @nonARC
 cocoa/VisionKitCoreSoftLink.mm @nonARC
 cocoa/VisionSoftLink.mm @nonARC
 cocoa/WebContentAnalysisSoftLink.mm @nonARC

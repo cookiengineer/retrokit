@@ -1574,25 +1574,6 @@ void WebChromeClient::mediaEngineChanged(WebCore::HTMLMediaElement& mediaElement
 
 #endif
 
-#if ENABLE(MEDIA_USAGE)
-void WebChromeClient::addMediaUsageManagerSession(MediaSessionIdentifier identifier, const String& bundleIdentifier, const URL& pageURL)
-{
-    if (RefPtr page = m_page.get())
-        page->addMediaUsageManagerSession(identifier, bundleIdentifier, pageURL);
-}
-
-void WebChromeClient::updateMediaUsageManagerSessionState(MediaSessionIdentifier identifier, const MediaUsageInfo& usage)
-{
-    if (RefPtr page = m_page.get())
-        page->updateMediaUsageManagerSessionState(identifier, usage);
-}
-
-void WebChromeClient::removeMediaUsageManagerSession(MediaSessionIdentifier identifier)
-{
-    if (RefPtr page = m_page.get())
-        page->removeMediaUsageManagerSession(identifier);
-}
-#endif // ENABLE(MEDIA_USAGE)
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
 

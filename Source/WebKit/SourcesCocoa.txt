@@ -652,7 +652,6 @@ UIProcess/mac/WKViewLayoutStrategy.mm @nonARC
 UIProcess/mac/WebViewImpl.mm @nonARC
 
 UIProcess/Media/cocoa/AudioSessionRoutingArbitratorProxyCocoa.mm @nonARC
-UIProcess/Media/cocoa/MediaUsageManagerCocoa.mm @nonARC
 
 UIProcess/Model/PortalPresentationManagerProxy.mm @nonARC
 UIProcess/Model/cocoa/ModelProcessProxyCocoa.mm @nonARC
