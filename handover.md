@@ -42,6 +42,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+06be042a7 Clean Arch container cache and enable ccache
+bb6320d48 Add rootless Podman build containers and handover document
 3d9477656 Fix WebXR build fallout and restore Geolocation task source
 f549a2c9d Document completed migration features
 195673c75 Remove remaining Touch Bar support
