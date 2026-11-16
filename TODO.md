@@ -9,13 +9,11 @@ Completed on `migrate/2.54`:
 ```text
 WebXR · SystemD/journald · Touch Bar · FTP · Gamepad
 Device Motion/Orientation · Geolocation · libsecret · Media Usage
+Web API Statistics · Legacy Custom Protocol · PlayStation platform
 ```
 
 ## Next up
 
-- [ ] `custom-protocol` — remove `ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER` and
-      the `LegacyCustomProtocolManager` files/IPC. Self-contained, ~22
-      target-relative work items.
 - [ ] Media stack — capture/streams (`media-capture`), recorder
       (`media-recorder`), encrypted media (`encrypted-media`), payment
       (`payment`), fullscreen/PiP (`fullscreen-pip`), WebRTC (`webrtc`) and
@@ -40,7 +38,6 @@ Device Motion/Orientation · Geolocation · libsecret · Media Usage
 
 ## Platform and dependency cleanup
 
-- [ ] Remove PlayStation platform support (`platform-playstation`)
 - [ ] Remove watchOS platform support (`platform-watchos`)
 - [ ] Remove ARKit/Model Element residue (`arkit-model`)
 - [ ] Remove sleep disablers (`sleep-disablers`)

@@ -12,8 +12,9 @@
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
 - Completed on `migrate/2.54`: WebXR, SystemD/journald, Touch Bar, FTP,
-  Gamepad, Device Motion/Orientation, Geolocation, libsecret and Media Usage.
-- Generated manifest: `manifest/divergence.tsv` (10,114 rows across 39 features).
+  Gamepad, Device Motion/Orientation, Geolocation, libsecret, Media Usage,
+  Web API Statistics, Legacy Custom Protocol and PlayStation platform support.
+- Generated manifest: `manifest/divergence.tsv` (10,368 rows across 39 features).
 - The manifest records the legacy fork diff plus every migrated feature through
   Media Usage, including the new upstream WebXR/WebGPU-XR files.
 
@@ -80,9 +81,21 @@ Completed feature commits on `migrate/2.54`:
 - **Media Usage** — removed `MediaUsageInfo`, the WebCore media-element usage
   tracking and the WebKit `MediaUsageManager`/Cocoa implementation, its IPC
   messages and the `Internals.mediaUsageState()` testing API.
+- **Web API Statistics** — removed `CanvasActivityRecord`, the font/canvas/
+  navigator/screen statistics fields and observer hooks, the
+  `WebAPIStatisticsEnabled` preference and `ENABLE_WEB_API_STATISTICS`.
+  `equivalence` passes over 41 entries; the leak scan is clean.
+- **Legacy Custom Protocol** — removed the legacy custom protocol manager,
+  its IPC proxy, `APICustomProtocolManagerClient` and the deprecated
+  `WKContext`/`WKBrowsingContextController` registration APIs. `equivalence`
+  passes over 94 entries; the leak scan is clean. `WKURLSchemeHandler` remains.
+- **PlayStation platform** — removed the PlayStation sources and build files,
+  the `testmem` tool, the port option and all `PLATFORM(PLAYSTATION)`,
+  `__SCE__`, `BPLATFORM_PLAYSTATION` and `PAS_PLATFORM_PLAYSTATION` branches.
+  `equivalence` passes over 224 entries with 3 stale 2.34.1 warnings; the leak
+  scan is clean. Both Debian and Arch builds and smoke tests pass.
 
-`custom-protocol` is the next small, self-contained removal, followed by the
-media stack.
+The media stack is next.
 
 ## Workflow
 

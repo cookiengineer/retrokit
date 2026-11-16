@@ -1,6 +1,6 @@
 # RetroKit Migration Handover
 
-Last updated: 2026-11-16
+Last updated: 2026-11-17
 
 ## 1. Where we are
 
@@ -43,6 +43,10 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+9e068a359 Remove PlayStation Platform Support
+0d478784d Remove Legacy Custom Protocol Manager
+878ecebe4 Remove Web API Statistics
+21a5fb388 Fix upstreamcheck preprocessor and build_ref scanning
 71a370ce6 Document Media Usage removal and next steps
 f248d555c Document Geolocation removal and next steps
 419076354 Remove Media Usage API
@@ -84,6 +88,7 @@ Completed removal features on `migrate/2.54`:
 ```text
 WebXR · SystemD/journald · Touch Bar · FTP · Gamepad
 Device Motion/Orientation · Geolocation · libsecret · Media Usage
+Web API Statistics · Legacy Custom Protocol · PlayStation platform
 ```
 
 `libnotify` was already absent upstream; its stale documentation references and
@@ -157,7 +162,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **10,114 rows across 39 features**. The manifest covers
+It currently contains **10,368 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for all completed features through Media Usage.
 
@@ -429,16 +434,118 @@ make build DISTRO=debian:         success (WebKit + MiniBrowser)
 make smoke DISTRO=debian:         success
 ```
 
+### Web API Statistics
+
+Commit: `878ecebe4 Remove Web API Statistics`
+
+Removed:
+
+- WebCore `CanvasActivityRecord`, the `NavigatorAPIsAccessed` and
+  `ScreenAPIsAccessed` enums, and the API/font/canvas fields on
+  `ResourceLoadStatistics`.
+- The `logFontLoad`, `logCanvasRead`, `logCanvasWriteOrMeasure`,
+  `logNavigatorAPIAccessed` and `logScreenAPIAccessed` observer hooks and all
+  WebCore call sites in fonts, canvas, `Navigator` and `Screen`.
+- The WebKit observer overrides, the argument coders and the generated
+  `WebAPIStatisticsEnabled` preference.
+- The `ENABLE_WEB_API_STATISTICS` build option and its GTK, iOS and Mac
+  defaults.
+
+ITP resource load statistics, subresource logging, storage access and user
+interaction tracking are retained.
+
+Verification:
+
+```text
+equivalence --feature web-api-statistics: 41 entries, 0 errors, 0 warnings
+leaks       --feature web-api-statistics: 0 residual occurrences
+make build DISTRO=debian:                success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:                success
+```
+
+### Legacy Custom Protocol
+
+Commit: `0d478784d Remove Legacy Custom Protocol Manager`
+
+Removed:
+
+- The NetworkProcess/UIProcess `CustomProtocols` implementation, the
+  `LegacyCustomProtocolID` type and the `APICustomProtocolManagerClient`
+  interface.
+- `ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER` and the Cocoa defaults.
+- The network-process supplement, creation parameters, preconnect guard and
+  Cocoa protocol-class registration.
+- The `WebProcessPool` registration helpers, `NetworkProcessProxy` plumbing
+  and the deprecated `WKContext`/`WKBrowsingContextController` registration
+  APIs.
+- The build lists, Xcode file lists and IPC generator metadata.
+
+Modern `WKURLSchemeHandler`, soup custom protocol request handling and the
+`TopNavigationToCustomProtocols` sandbox flag are unrelated and remain.
+
+Verification:
+
+```text
+equivalence --feature custom-protocol: 94 entries, 0 errors, 0 warnings
+leaks       --feature custom-protocol: 0 residual occurrences
+make build DISTRO=debian:             success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:             success
+```
+
+### PlayStation Platform
+
+Commit: `9e068a359 Remove PlayStation Platform Support`
+
+Removed:
+
+- The JSC, WTF, WebCore, WebKit, WebDriver and bmalloc/libpas PlayStation
+  sources, `PlatformPlayStation.cmake` files, `OptionsPlayStation.cmake`,
+  `FindWPEBackendPlayStation.cmake` and the `testmem` developer tool.
+- `PlayStation` from the CMake port list and `PlatformEnablePlayStation.h`.
+- All `PLATFORM(PLAYSTATION)`, `__SCE__`, `BPLATFORM_PLAYSTATION` and
+  `PAS_PLATFORM_PLAYSTATION` branches in shared code, keeping the generic path.
+- PlayStation-specific storage directory names, process-launch fields, the IPC
+  socket monitor, theme/accessibility selection and WPE backend hooks.
+- The PlayStation preference default.
+
+`playstation.com` site quirks and storage-access rules are user-agent behaviour,
+not platform support, and remain.
+
+Verification:
+
+```text
+equivalence --feature platform-playstation: 224 entries, 0 errors, 3 stale warnings
+leaks       --feature platform-playstation: 0 residual occurrences
+make build DISTRO=debian:                   success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:                   success
+make build DISTRO=archlinux:                success (WebKit + MiniBrowser)
+make smoke DISTRO=archlinux:                success
+```
+
+The three warnings are 2.34.1 manifest paths that no longer exist upstream
+(`SharedMemoryUnix.cpp`, `WebInspectorClient.cpp`, `bmalloc/Scavenger.cpp`).
+They are informational.
+
+### Tooling fix
+
+Commit: `21a5fb388 Fix upstreamcheck preprocessor and build_ref scanning`
+
+- `leaks` no longer treats every `#` line as a comment, so residual
+  `#if ENABLE(...)` guards and `#include` lines are reported.
+- `plan` now matches annotated build-list entries (`@nonARC`, `@cost:3`)
+  against the manifest's bare path.
+
 ## 5. Next steps
 
-### Next: custom-protocol, then the media stack
+### Next: the media stack
 
-Media Usage is done. The next smallest self-contained removal is the legacy
-custom protocol manager (`custom-protocol`, 22 pending), followed by the
-remaining media stack (capture, streams, recorder, EME, PiP/fullscreen).
+Web API Statistics, the legacy custom protocol manager and PlayStation platform
+support are done. The remaining work starts with the media stack (capture,
+streams, recorder, EME, PiP/fullscreen), then the smaller API and behaviour
+removals.
 
-- Do not resurrect geolocation/media-usage permission or reporting plumbing
-  when removing other APIs.
+- Do not resurrect geolocation/media-usage/media-statistics permission or
+  reporting plumbing when removing other APIs.
 - WebGL remains the largest pending feature and should stay last.
 - Continue curating `needs-review.tsv`.
 
@@ -447,8 +554,8 @@ with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
 
 Suggested order:
 
-1. `custom-protocol`.
-2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+1. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+2. Media statistics, payment and wireless playback.
 3. Automation, WebDriver, quirks and user-agent quirks.
 4. Remaining build/behaviour fixes.
 5. WebGL (largest, last).
@@ -482,20 +589,19 @@ cmake -DPORT=GTK -DCMAKE_BUILD_TYPE=Release \
 ```
 
 The Debian container has been rebuilt and smoke-tested after every completed
-feature through Media Usage:
+feature through PlayStation platform removal:
 
 ```text
 make build DISTRO=debian     -> success (WebKit + MiniBrowser)
 make smoke DISTRO=debian     -> success (MiniBrowser --help under Xvfb)
 ```
 
-The Arch Linux container was fully validated before the Geolocation/Device
-Motion changes. Re-run both gates at cutover, and on both distros for changes
-that touch shared platform or build code:
+The Arch Linux container was fully revalidated after the PlayStation platform
+removal, which touched shared WTF, WebCore, WebKit and bmalloc/libpas code:
 
 ```text
-make build DISTRO=archlinux  -> last full validation before Geolocation
-make smoke DISTRO=archlinux
+make build DISTRO=archlinux  -> success (WebKit + MiniBrowser)
+make smoke DISTRO=archlinux  -> success (MiniBrowser --help under Xvfb)
 ```
 
 The host itself does not need Ruby because the build runs inside the
@@ -620,7 +726,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 2. `cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck`
 3. `make build DISTRO=debian` (or `archlinux`) to establish a full baseline
    build of the migrated tree.
-4. `./upstreamcheck plan --feature custom-protocol --target vendor/2.54.2`
-5. Use `./upstreamcheck migrate --feature custom-protocol ...` and verify with
+4. `./upstreamcheck plan --feature media-capture --target vendor/2.54.2`
+5. Use `./upstreamcheck migrate --feature media-capture ...` and verify with
    `equivalence` and `leaks`.
 6. Curate `needs-review.tsv` while build iterations run.
