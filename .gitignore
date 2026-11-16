@@ -5,6 +5,7 @@ __pycache__
 
 # Local upstream WebKit checkout and generated upstreamcheck artifacts
 /upstream_repo/
+/build/
 /Helpers/upstreamcheck/.cache/
 /Helpers/upstreamcheck/manifest/candidates/
 /Helpers/upstreamcheck/manifest/migration-plan.md
