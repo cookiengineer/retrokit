@@ -25,32 +25,3 @@
 
 #pragma once
 
-#if ENABLE(WEB_RTC)
-
-#include "RTCDataChannelHandler.h"
-#include "TimerEventBasedMock.h"
-#include <wtf/TZoneMalloc.h>
-
-namespace WebCore {
-
-class RTCDataChannelHandlerMock final : public RTCDataChannelHandler, public TimerEventBasedMock {
-    WTF_MAKE_TZONE_ALLOCATED(RTCDataChannelHandlerMock);
-public:
-    RTCDataChannelHandlerMock(const String&, const RTCDataChannelInit&);
-
-private:
-    void setClient(RTCDataChannelHandlerClient&, std::optional<ScriptExecutionContextIdentifier>) final;
-
-    bool sendStringData(const CString&) final;
-    bool sendRawData(std::span<const uint8_t>) final;
-    void close() final;
-
-    WeakPtr<RTCDataChannelHandlerClient> m_client;
-
-    String m_label;
-    String m_protocol;
-};
-
-} // namespace WebCore
-
-#endif // ENABLE(WEB_RTC)

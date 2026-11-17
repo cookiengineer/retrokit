@@ -39,6 +39,7 @@
 
 #if ENABLE(VIDEO)
 #include "RemoteVideoFrameObjectHeap.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/GraphicsContextGLCV.h>
 #include <WebCore/MediaSampleAVFObjC.h>
 #include <WebCore/VideoFrameCV.h>

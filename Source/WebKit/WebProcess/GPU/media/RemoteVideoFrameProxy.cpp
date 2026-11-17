@@ -29,13 +29,12 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 #include "GPUConnectionToWebProcess.h"
 #include "RemoteVideoFrameObjectHeapMessages.h"
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "WebProcess.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <WebCore/CVUtilities.h>
-#include <WebCore/RealtimeIncomingVideoSourceCocoa.h>
 #include <WebCore/VideoFrameCV.h>
 #include <wtf/MainThread.h>
 #include <wtf/threads/BinarySemaphore.h>

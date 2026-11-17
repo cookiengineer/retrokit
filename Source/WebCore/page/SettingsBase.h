@@ -159,13 +159,9 @@ protected:
     void hiddenPageDOMTimerThrottlingStateChanged();
     void hiddenPageCSSAnimationSuspensionEnabledChanged();
     void resourceUsageOverlayVisibleChanged();
-    void iceCandidateFilteringEnabledChanged();
 #if ENABLE(TEXT_AUTOSIZING)
     void shouldEnableTextAutosizingBoostChanged();
     void textAutosizingUsesIdempotentModeChanged();
-#endif
-#if ENABLE(MEDIA_STREAM)
-    void mockCaptureDevicesEnabledChanged();
 #endif
     void layerBasedSVGEngineEnabledChanged();
     void useSystemAppearanceChanged();

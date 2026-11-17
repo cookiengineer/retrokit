@@ -33,6 +33,7 @@
 #include "RemoteVideoFrameObjectHeapProxyProcessorMessages.h"
 #include "RemoteVideoFrameProxy.h"
 #include "WebProcess.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/CVUtilities.h>
 #include <WebCore/NativeImage.h>
 

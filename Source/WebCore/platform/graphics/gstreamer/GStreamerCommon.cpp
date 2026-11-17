@@ -74,10 +74,6 @@
 #include "WebKitMediaSourceGStreamer.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include "GStreamerCaptureDeviceManager.h"
-#include "GStreamerMediaStreamSource.h"
-#endif
 
 #if USE(FLITE)
 #include "WebKitFliteSourceGStreamer.h"
@@ -96,7 +92,6 @@
 #endif
 
 #if USE(GSTREAMER_WEBRTC)
-#include "GStreamerRTPVideoRotationHeaderExtension.h"
 #include <gst/webrtc/webrtc-enumtypes.h>
 #endif
 
@@ -313,9 +308,6 @@ bool isProtocolAllowed(const WTF::URL& url)
     HashSet<String> allowedProtocols = { "blob"_s, "data"_s, "file"_s, "http"_s, "https"_s };
 #if ENABLE(MEDIA_SOURCE)
     allowedProtocols.add("mediasourceblob"_s);
-#endif
-#if ENABLE(MEDIA_STREAM)
-    allowedProtocols.add("mediastream"_s);
 #endif
 
     // Parse and add protocols from environment variable
@@ -566,9 +558,6 @@ void registerWebKitGStreamerElements()
         }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-        gst_element_register(nullptr, "mediastreamsrc", GST_RANK_PRIMARY, WEBKIT_TYPE_MEDIA_STREAM_SRC);
-#endif
         registerInternalVideoEncoder();
 
 #if USE(GSTREAMER_WEBRTC)
@@ -741,9 +730,6 @@ void deinitializeGStreamer()
 #if USE(GSTREAMER_GL)
     if (auto* sharedDisplay = PlatformDisplay::sharedDisplayIfExists())
         sharedDisplay->clearGStreamerGLState();
-#endif
-#if ENABLE(MEDIA_STREAM)
-    teardownGStreamerCaptureDeviceManagers();
 #endif
 #if ENABLE(MEDIA_SOURCE)
     teardownGStreamerRegistryScannerMSE();

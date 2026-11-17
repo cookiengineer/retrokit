@@ -28,7 +28,6 @@
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(WEB_CODECS)
 
-#include "LibWebRTCCodecs.h"
 #include "WebProcess.h"
 #include <wtf/StdUnorderedMap.h>
 #include <wtf/TZoneMallocInlines.h>

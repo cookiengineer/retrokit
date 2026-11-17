@@ -22,7 +22,6 @@
 
 #if USE(GSTREAMER_WEBRTC) && USE(LIBRICE)
 
-#include "GStreamerIceAgent.h"
 #include <wtf/glib/GRefPtr.h>
 
 typedef struct _AgentSource AgentSource;

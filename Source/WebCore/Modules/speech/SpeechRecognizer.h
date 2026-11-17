@@ -52,9 +52,6 @@ public:
     WEBCORE_EXPORT explicit SpeechRecognizer(DelegateCallback&&, Ref<SpeechRecognitionRequest>&&);
     WEBCORE_EXPORT ~SpeechRecognizer();
 
-#if ENABLE(MEDIA_STREAM)
-    WEBCORE_EXPORT void start(Ref<RealtimeMediaSource>&&, bool mockSpeechRecognitionEnabled);
-#endif
     WEBCORE_EXPORT void abort(std::optional<SpeechRecognitionError>&& = std::nullopt);
     WEBCORE_EXPORT void stop();
     WEBCORE_EXPORT void prepareForDestruction();
@@ -72,9 +69,6 @@ private:
         Aborting
     };
 
-#if ENABLE(MEDIA_STREAM)
-    void startCapture(Ref<RealtimeMediaSource>&&);
-#endif
     void stopCapture();
     void dataCaptured(const WTF::MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t sampleCount);
     bool startRecognition(bool mockSpeechRecognitionEnabled, SpeechRecognitionConnectionClientIdentifier, const String& localeIdentifier, bool continuous, bool interimResults, uint64_t alternatives);

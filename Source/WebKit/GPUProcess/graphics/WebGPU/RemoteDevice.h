@@ -30,7 +30,6 @@
 #include "GPUConnectionToWebProcess.h"
 #include "RemoteQueue.h"
 #include "RemoteVideoFrameIdentifier.h"
-#include "SharedVideoFrame.h"
 #include "StreamMessageReceiver.h"
 #include "WebGPUError.h"
 #include "WebGPUIdentifier.h"
@@ -45,6 +44,7 @@
 
 #if ENABLE(VIDEO)
 #include "RemoteVideoFrameObjectHeap.h"
+#include "SharedVideoFrame.h"
 #endif
 
 typedef struct __CVBuffer* CVPixelBufferRef;

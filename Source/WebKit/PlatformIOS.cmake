@@ -1750,12 +1750,8 @@ target_compile_options(_WebKit_SwiftUI PRIVATE
     ${WEBKIT_PRIVATE_FRAMEWORKS_COMPILE_FLAG}
 )
 
-# SDK webrtc forwarding headers do quoted #include "api/..." lookups; expose libwebrtc src.
 if (USE_LIBWEBRTC)
     foreach (_dir IN ITEMS
-        "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
-        "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/webrtc"
-        "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/abseil-cpp")
         if (EXISTS "${_dir}")
             target_compile_options(_WebKit_SwiftUI PRIVATE
                 "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -isystem${_dir}>")

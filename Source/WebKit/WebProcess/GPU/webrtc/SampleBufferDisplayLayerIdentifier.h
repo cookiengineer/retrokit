@@ -28,6 +28,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include <wtf/ObjectIdentifier.h>
+#include "SampleBufferDisplayLayer.h"
 
 namespace WebKit {
 

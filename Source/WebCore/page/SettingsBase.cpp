@@ -44,9 +44,6 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "MockRealtimeMediaSourceCenter.h"
-#endif
 
 namespace WebCore {
 
@@ -388,17 +385,6 @@ void SettingsBase::imageLoadingSettingsTimerFired()
     }
 }
 
-void SettingsBase::iceCandidateFilteringEnabledChanged()
-{
-    if (!m_page)
-        return;
-
-    if (m_page->settings().iceCandidateFilteringEnabled())
-        protect(m_page)->enableICECandidateFiltering();
-    else
-        protect(m_page)->disableICECandidateFiltering();
-}
-
 #if ENABLE(TEXT_AUTOSIZING)
 
 void SettingsBase::shouldEnableTextAutosizingBoostChanged()
@@ -423,18 +409,6 @@ void SettingsBase::textAutosizingUsesIdempotentModeChanged()
 
 #endif // ENABLE(TEXT_AUTOSIZING)
 
-#if ENABLE(MEDIA_STREAM)
-
-void SettingsBase::mockCaptureDevicesEnabledChanged()
-{
-    bool enabled = false;
-    if (m_page)
-        enabled = m_page->settings().mockCaptureDevicesEnabled();
-
-    MockRealtimeMediaSourceCenter::setMockRealtimeMediaSourceCenterEnabled(enabled);
-}
-
-#endif
 
 void SettingsBase::layerBasedSVGEngineEnabledChanged()
 {

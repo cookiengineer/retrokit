@@ -27,6 +27,9 @@
 
 #include "JSIPCBinding.h"
 #include "MessageNames.h"
+#include "SampleBufferDisplayLayer.h"
+#include "VideoDecoderIdentifier.h"
+#include "VideoEncoderIdentifier.h"
 
 #if ENABLE(IPC_TESTING_API) || !LOG_DISABLED
 

@@ -403,9 +403,6 @@ JS_BINDING_IDLS := \
 	$(WebCore)/Modules/mediacontrols/MediaControlsContextMenuItem.idl \
     $(WebCore)/Modules/mediacontrols/MediaControlsHost.idl \
     $(WebCore)/Modules/mediacontrols/MediaControlsUtils.idl \
-    $(WebCore)/Modules/mediarecorder/BlobEvent.idl \
-    $(WebCore)/Modules/mediarecorder/MediaRecorder.idl \
-    $(WebCore)/Modules/mediarecorder/MediaRecorderErrorEvent.idl \
     $(WebCore)/Modules/mediasource/AudioTrack+MediaSource.idl \
     $(WebCore)/Modules/mediasource/BufferedChangeEvent.idl \
     $(WebCore)/Modules/mediasource/DOMURL+MediaSource.idl \
@@ -436,99 +433,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/mediasession/MediaSessionPlaylistMixin.idl \
     $(WebCore)/Modules/mediasession/MediaSessionReadyState.idl \
     $(WebCore)/Modules/mediasession/Navigator+MediaSession.idl \
-    $(WebCore)/Modules/mediastream/CanvasCaptureMediaStreamTrack.idl \
-    $(WebCore)/Modules/mediastream/DoubleRange.idl \
-    $(WebCore)/Modules/mediastream/FillLightMode.idl \
-    $(WebCore)/Modules/mediastream/LongRange.idl \
-    $(WebCore)/Modules/mediastream/ImageCapture.idl \
-    $(WebCore)/Modules/mediastream/InputDeviceInfo.idl \
-    $(WebCore)/Modules/mediastream/MediaDeviceInfo.idl \
-    $(WebCore)/Modules/mediastream/MediaDevices.idl \
-    $(WebCore)/Modules/mediastream/MediaSettingsRange.idl \
-    $(WebCore)/Modules/mediastream/MediaStream.idl \
-    $(WebCore)/Modules/mediastream/MediaStreamTrack.idl \
-    $(WebCore)/Modules/mediastream/MediaStreamTrackEvent.idl \
-    $(WebCore)/Modules/mediastream/MediaStreamTrackHandle.idl \
-    $(WebCore)/Modules/mediastream/MediaStreamTrackProcessor.idl \
-    $(WebCore)/Modules/mediastream/MediaTrackCapabilities.idl \
-    $(WebCore)/Modules/mediastream/MediaTrackConstraints.idl \
-    $(WebCore)/Modules/mediastream/MediaTrackSupportedConstraints.idl \
-    $(WebCore)/Modules/mediastream/MeteringMode.idl \
-    $(WebCore)/Modules/mediastream/Navigator+MediaDevices.idl \
-    $(WebCore)/Modules/mediastream/OverconstrainedError.idl \
-    $(WebCore)/Modules/mediastream/OverconstrainedErrorEvent.idl \
-    $(WebCore)/Modules/mediastream/PhotoCapabilities.idl \
-    $(WebCore)/Modules/mediastream/PhotoSettings.idl \
-    $(WebCore)/Modules/mediastream/RedEyeReduction.idl \
-    $(WebCore)/Modules/mediastream/RTCAnswerOptions.idl \
-    $(WebCore)/Modules/mediastream/RTCCertificate.idl \
-    $(WebCore)/Modules/mediastream/RTCConfiguration.idl \
-    $(WebCore)/Modules/mediastream/RTCDTMFSender.idl \
-    $(WebCore)/Modules/mediastream/RTCDTMFToneChangeEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCDataChannel.idl \
-    $(WebCore)/Modules/mediastream/RTCDataChannelEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCDegradationPreference.idl \
-    $(WebCore)/Modules/mediastream/RTCDtlsTransport.idl \
-    $(WebCore)/Modules/mediastream/RTCDtlsTransportState.idl \
-    $(WebCore)/Modules/mediastream/RTCEncodedAudioFrame.idl \
-    $(WebCore)/Modules/mediastream/RTCEncodedStreams.idl \
-    $(WebCore)/Modules/mediastream/RTCEncodedVideoFrame.idl \
-    $(WebCore)/Modules/mediastream/RTCError.idl \
-    $(WebCore)/Modules/mediastream/RTCErrorDetailType.idl \
-    $(WebCore)/Modules/mediastream/RTCErrorEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCIceCandidate.idl \
-    $(WebCore)/Modules/mediastream/RTCIceCandidateInit.idl \
-    $(WebCore)/Modules/mediastream/RTCIceCandidateType.idl \
-    $(WebCore)/Modules/mediastream/RTCIceComponent.idl \
-    $(WebCore)/Modules/mediastream/RTCIceConnectionState.idl \
-    $(WebCore)/Modules/mediastream/RTCIceGatheringState.idl \
-    $(WebCore)/Modules/mediastream/RTCIceProtocol.idl \
-    $(WebCore)/Modules/mediastream/RTCIceRole.idl \
-    $(WebCore)/Modules/mediastream/RTCIceServer.idl \
-    $(WebCore)/Modules/mediastream/RTCIceServerTransportProtocol.idl \
-    $(WebCore)/Modules/mediastream/RTCIceTcpCandidateType.idl \
-    $(WebCore)/Modules/mediastream/RTCIceTransport.idl \
-    $(WebCore)/Modules/mediastream/RTCIceTransportState.idl \
-    $(WebCore)/Modules/mediastream/RTCLocalSessionDescriptionInit.idl \
-    $(WebCore)/Modules/mediastream/RTCOfferAnswerOptions.idl \
-    $(WebCore)/Modules/mediastream/RTCOfferOptions.idl \
-    $(WebCore)/Modules/mediastream/RTCPeerConnection.idl \
-    $(WebCore)/Modules/mediastream/RTCPeerConnectionIceEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCPeerConnectionIceErrorEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCPeerConnectionState.idl \
-    $(WebCore)/Modules/mediastream/RTCPriorityType.idl \
-    $(WebCore)/Modules/mediastream/RTCRtcpParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpCapabilities.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpCodec.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpCodec.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpCodecParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpCodingParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpContributingSource.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpEncodingParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpHeaderExtensionParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpReceiver.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpReceiver+Transform.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpSendParameters.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpSender.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpSender+Transform.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpSFrameTransformErrorEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpScriptTransform.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpScriptTransformProvider.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpScriptTransformer.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpSynchronizationSource.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpTransceiver.idl \
-    $(WebCore)/Modules/mediastream/RTCRtpTransceiverDirection.idl \
-    $(WebCore)/Modules/mediastream/RTCSctpTransport.idl \
-    $(WebCore)/Modules/mediastream/RTCSctpTransportState.idl \
-    $(WebCore)/Modules/mediastream/RTCSdpType.idl \
-    $(WebCore)/Modules/mediastream/RTCSessionDescription.idl \
-    $(WebCore)/Modules/mediastream/RTCSessionDescriptionInit.idl \
-    $(WebCore)/Modules/mediastream/RTCSignalingState.idl \
-    $(WebCore)/Modules/mediastream/RTCStatsReport.idl \
-    $(WebCore)/Modules/mediastream/RTCTrackEvent.idl \
-    $(WebCore)/Modules/mediastream/RTCTransformEvent.idl \
-    $(WebCore)/Modules/mediastream/VideoTrackGenerator.idl \
     $(WebCore)/Modules/model-element/HTMLModelElement.idl \
     $(WebCore)/Modules/model-element/HTMLModelElementCamera.idl \
     $(WebCore)/Modules/notifications/Notification.idl \
@@ -706,9 +610,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/webaudio/IIRFilterOptions.idl \
     $(WebCore)/Modules/webaudio/MediaElementAudioSourceNode.idl \
     $(WebCore)/Modules/webaudio/MediaElementAudioSourceOptions.idl \
-    $(WebCore)/Modules/webaudio/MediaStreamAudioDestinationNode.idl \
-    $(WebCore)/Modules/webaudio/MediaStreamAudioSourceNode.idl \
-    $(WebCore)/Modules/webaudio/MediaStreamAudioSourceOptions.idl \
     $(WebCore)/Modules/webaudio/OfflineAudioCompletionEvent.idl \
     $(WebCore)/Modules/webaudio/OfflineAudioCompletionEventInit.idl \
     $(WebCore)/Modules/webaudio/OfflineAudioContext.idl \
@@ -1445,7 +1346,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/inspector/InspectorAuditDOMObject.idl \
     $(WebCore)/inspector/InspectorAuditResourcesObject.idl \
     $(WebCore)/inspector/InspectorFrontendHost.idl \
-    $(WebCore)/inspector/RTCLogsCallback.idl \
     $(WebCore)/loader/COEPInheritenceViolationReportBody.idl \
     $(WebCore)/loader/CORPViolationReportBody.idl \
     $(WebCore)/page/BarProp.idl \
@@ -1693,9 +1593,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/testing/MockCDMFactory.idl \
     $(WebCore)/testing/MockCaptionDisplaySettingsClientCallback.idl \
     $(WebCore)/testing/MockContentFilterSettings.idl \
-	$(WebCore)/testing/MockMediaDeviceRoute.idl \
-	$(WebCore)/testing/MockMediaDeviceRouteController.idl \
-	$(WebCore)/testing/MockMediaDeviceRouteURLCallback.idl \
     $(WebCore)/testing/MockPageOverlay.idl \
     $(WebCore)/testing/MockPaymentAddress.idl \
     $(WebCore)/testing/MockPaymentContactFields.idl \

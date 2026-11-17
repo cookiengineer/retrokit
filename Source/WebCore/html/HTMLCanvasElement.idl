@@ -49,5 +49,4 @@ typedef (
     undefined toBlob(BlobCallback callback, optional DOMString type, optional any quality);
     [Conditional=OFFSCREEN_CANVAS, EnabledBySetting=OffscreenCanvasEnabled, NewObject] OffscreenCanvas transferControlToOffscreen();
 
-    [Conditional=MEDIA_STREAM, NewObject] MediaStream captureStream(optional double frameRequestRate);
 };

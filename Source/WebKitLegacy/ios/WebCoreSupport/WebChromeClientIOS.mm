@@ -77,24 +77,6 @@ NSString * const WebOpenPanelConfigurationMimeTypesKey = @"WebOpenPanelConfigura
 
 using namespace WebCore;
 
-#if ENABLE(MEDIA_CAPTURE)
-
-static WebMediaCaptureType webMediaCaptureType(MediaCaptureType type)
-{
-    switch (type) {
-    case MediaCaptureType::MediaCaptureTypeNone:
-        return WebMediaCaptureTypeNone;
-    case MediaCaptureType::MediaCaptureTypeUser:
-        return WebMediaCaptureTypeUser;
-    case MediaCaptureType::MediaCaptureTypeEnvironment:
-        return WebMediaCaptureTypeEnvironment;
-    }
-
-    ASSERT_NOT_REACHED();
-    return WebMediaCaptureTypeNone;
-}
-
-#endif
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebChromeClientIOS);
 
@@ -144,9 +126,6 @@ void WebChromeClientIOS::runOpenPanel(LocalFrame&, FileChooser& chooser)
     auto listener = adoptNS([[WebOpenPanelResultListener alloc] initWithChooser:chooser]);
 
     WebMediaCaptureType captureType = WebMediaCaptureTypeNone;
-#if ENABLE(MEDIA_CAPTURE)
-    captureType = webMediaCaptureType(settings.mediaCaptureType);
-#endif
     NSDictionary *configuration = @{
         WebOpenPanelConfigurationAllowMultipleFilesKey: @(allowMultipleFiles),
         WebOpenPanelConfigurationMimeTypesKey: createNSArray(settings.acceptMIMETypes).get(),

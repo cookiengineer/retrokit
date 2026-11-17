@@ -44,13 +44,6 @@ namespace WebKit {
 
 struct GPUProcessCreationParameters {
     AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
-#if ENABLE(MEDIA_STREAM)
-    bool useMockCaptureDevices { false };
-#if PLATFORM(MAC)
-    SandboxExtension::Handle microphoneSandboxExtensionHandle;
-    SandboxExtension::Handle launchServicesExtensionHandle;
-#endif
-#endif
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     SandboxExtension::Handle containerCachesDirectoryExtensionHandle;

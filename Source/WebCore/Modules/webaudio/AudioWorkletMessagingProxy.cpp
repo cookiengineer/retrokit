@@ -41,7 +41,6 @@
 #include "FileSystemStorageConnection.h"
 #include "IDBConnectionProxy.h"
 #include "LocalFrame.h"
-#include "WebRTCProvider.h"
 #include "WorkletParameters.h"
 #include "WorkletPendingTasks.h"
 
@@ -103,17 +102,6 @@ RefPtr<IDBClient::IDBConnectionProxy> AudioWorkletMessagingProxy::createIDBConne
     return nullptr;
 }
 
-RefPtr<RTCDataChannelRemoteHandlerConnection> AudioWorkletMessagingProxy::createRTCDataChannelRemoteHandlerConnection()
-{
-    ASSERT(isMainThread());
-    RefPtr worklet = m_worklet.get();
-    if (!worklet)
-        return nullptr;
-    RefPtr document = worklet->document();
-    if (!document || !document->page())
-        return nullptr;
-    return document->page()->webRTCProvider().createRTCDataChannelRemoteHandlerConnection();
-}
 
 ScriptExecutionContextIdentifier AudioWorkletMessagingProxy::loaderContextIdentifier() const
 {

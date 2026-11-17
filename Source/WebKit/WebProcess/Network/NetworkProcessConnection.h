@@ -31,7 +31,6 @@
 #include <WebCore/MessagePortChannelProvider.h>
 #include <WebCore/NonSerializedDataIdentifier.h>
 #include <WebCore/PageIdentifier.h>
-#include <WebCore/RTCDataChannelIdentifier.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ServiceWorkerTypes.h>
 #include <WebCore/ShareableResource.h>
@@ -120,9 +119,6 @@ private:
 #if ENABLE(SHAREABLE_RESOURCE)
     // Message handlers.
     void didCacheResource(const WebCore::ResourceRequest&, WebCore::ShareableResource::Handle&&);
-#endif
-#if ENABLE(WEB_RTC)
-    void connectToRTCDataChannelRemoteSource(WebCore::RTCDataChannelIdentifier source, WebCore::RTCDataChannelIdentifier handler, CompletionHandler<void(std::optional<bool>)>&&);
 #endif
 
     void broadcastConsoleMessage(MessageSource, MessageLevel, const String& message);

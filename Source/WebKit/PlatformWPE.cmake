@@ -173,7 +173,6 @@ set(WPE_API_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitContextMenuItem.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitCookieManager.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDefines.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDeviceInfoPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDownload.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditingCommands.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditorState.h.in
@@ -213,7 +212,6 @@ set(WPE_API_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContent.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContentFilterStore.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContentManager.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMediaPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMessage.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebContext.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebResource.h.in
@@ -413,10 +411,8 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${DERIVED_SOURCES_WPE_API_DIR}"
     "${FORWARDING_HEADERS_WPE_DIR}"
     "${FORWARDING_HEADERS_WPE_EXTENSION_DIR}"
-    "${WEBCORE_DIR}/Modules/mediastream"
     "${WEBKIT_DIR}/NetworkProcess/glib"
     "${WEBKIT_DIR}/NetworkProcess/soup"
-    "${WEBKIT_DIR}/NetworkProcess/webrtc/rice"
     "${WEBKIT_DIR}/Platform/IPC/android"
     "${WEBKIT_DIR}/Platform/IPC/glib"
     "${WEBKIT_DIR}/Platform/IPC/unix"
@@ -447,7 +443,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WPEPlatform/wpe"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe"
-    "${WEBKIT_DIR}/WebProcess/Network/webrtc/rice"
     "${WEBKIT_DIR}/WebProcess/WebCoreSupport/soup"
     "${WEBKIT_DIR}/WebProcess/WebPage/CoordinatedGraphics"
     "${WEBKIT_DIR}/WebProcess/WebPage/glib"
@@ -566,12 +561,9 @@ list(APPEND WebKit_INTERFACE_INCLUDE_DIRECTORIES
 
 if (ENABLE_MEDIA_STREAM)
     list(APPEND WebKit_SOURCES
-        UIProcess/glib/UserMediaPermissionRequestManagerProxyGLib.cpp
 
-        WebProcess/glib/UserMediaCaptureManager.cpp
     )
     list(APPEND WebKit_MESSAGES_IN_FILES
-        WebProcess/glib/UserMediaCaptureManager
     )
 endif ()
 

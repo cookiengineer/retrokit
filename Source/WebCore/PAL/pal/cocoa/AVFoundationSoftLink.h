@@ -29,6 +29,7 @@
 #if !__has_feature(modules)
 
 #include <wtf/Compiler.h>
+#include "SampleBufferDisplayLayer.h"
 #include <wtf/Platform.h>
 
 #if USE(AVFOUNDATION)

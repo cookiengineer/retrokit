@@ -26,6 +26,8 @@
 #pragma once
 
 #include <wtf/Platform.h>
+#include "SharedVideoFrame.h"
+#include "SharedVideoFrameInfo.h"
 #if ENABLE(VIDEO) && PLATFORM(COCOA)
 
 #include <span>

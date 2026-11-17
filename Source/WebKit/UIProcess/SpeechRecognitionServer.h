@@ -59,9 +59,6 @@ class SpeechRecognitionServer : public IPC::MessageReceiver, private IPC::Messag
 public:
     using RealtimeMediaSourceCreateFunction = Function<WebCore::CaptureSourceOrError(WebCore::SpeechRecognitionConnectionClientIdentifier)>;
     static Ref<SpeechRecognitionServer> create(WebProcessProxy&, SpeechRecognitionServerIdentifier, SpeechRecognitionPermissionChecker&&, SpeechRecognitionCheckIfMockSpeechRecognitionEnabled&&
-#if ENABLE(MEDIA_STREAM)
-        , RealtimeMediaSourceCreateFunction&&
-#endif
         );
 
     void ref() const final { RefCounted::ref(); }
@@ -79,9 +76,6 @@ public:
 
 private:
     SpeechRecognitionServer(WebProcessProxy&, SpeechRecognitionServerIdentifier, SpeechRecognitionPermissionChecker&&, SpeechRecognitionCheckIfMockSpeechRecognitionEnabled&&
-#if ENABLE(MEDIA_STREAM)
-        , RealtimeMediaSourceCreateFunction&&
-#endif
         );
 
     void requestPermissionForRequest(WebCore::SpeechRecognitionRequest&, FrameInfoData&&);
@@ -103,9 +97,6 @@ private:
     std::unique_ptr<WebCore::SpeechRecognizer> m_recognizer;
     SpeechRecognitionCheckIfMockSpeechRecognitionEnabled m_checkIfMockSpeechRecognitionEnabled;
 
-#if ENABLE(MEDIA_STREAM)
-    RealtimeMediaSourceCreateFunction m_realtimeMediaSourceCreateFunction;
-#endif
 };
 
 } // namespace WebKit

@@ -130,7 +130,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/mac/controls"
     "${WEBCORE_DIR}/platform/ios"
     "${WEBCORE_DIR}/platform/mac"
-    "${WEBCORE_DIR}/platform/mediastream/mac"
     "${WEBCORE_DIR}/platform/network/mac"
     "${WEBCORE_DIR}/platform/text/mac"
     "${WEBCORE_DIR}/platform/spi/mac"

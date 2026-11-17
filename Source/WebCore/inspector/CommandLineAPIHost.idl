@@ -40,7 +40,6 @@
 
     [CallWith=CurrentGlobalObject] record<DOMString, sequence<ListenerEntry>> getEventListeners(EventTarget target);
 
-    [Conditional=WEB_RTC, CallWith=CurrentGlobalObject] undefined gatherRTCLogs(RTCLogsCallback? callback);
 
     DOMString storageId(Storage storage);
 };

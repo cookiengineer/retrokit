@@ -90,19 +90,6 @@ void GPUProcess::dispatchSimulatedNotificationsForPreferenceChange(const String&
 }
 #endif // ENABLE(CFPREFS_DIRECT_MODE)
 
-#if ENABLE(MEDIA_STREAM)
-void GPUProcess::ensureAVCaptureServerConnection()
-{
-    RELEASE_LOG(WebRTC, "GPUProcess::ensureAVCaptureServerConnection: Entering.");
-#if HAVE(AVCAPTUREDEVICE) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-    RetainPtr deviceClass = PAL::getAVCaptureDeviceClassSingleton();
-    if ([deviceClass respondsToSelector:@selector(ensureServerConnection)]) {
-        RELEASE_LOG(WebRTC, "GPUProcess::ensureAVCaptureServerConnection: Calling [AVCaptureDevice ensureServerConnection]");
-        [deviceClass ensureServerConnection];
-    }
-#endif
-}
-#endif
 
 void GPUProcess::platformInitializeGPUProcess(GPUProcessCreationParameters& parameters)
 {

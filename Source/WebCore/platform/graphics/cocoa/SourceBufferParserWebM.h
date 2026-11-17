@@ -28,7 +28,6 @@
 #if ENABLE(MEDIA_SOURCE)
 
 #include <CoreAudio/CoreAudioTypes.h>
-#include <WebCore/LibWebRTCMacros.h>
 #include <WebCore/MediaSample.h>
 #include <WebCore/MediaSamplesBlock.h>
 #include <WebCore/SharedBuffer.h>

@@ -27,13 +27,11 @@ VPATH = \
     $(WebKit2)/GPUProcess/mac \
     $(WebKit2)/GPUProcess/media \
     $(WebKit2)/GPUProcess/media/ios \
-    $(WebKit2)/GPUProcess/webrtc \
     $(WebKit2)/ModelProcess \
     $(WebKit2)/NetworkProcess \
     $(WebKit2)/NetworkProcess/Cookies \
     $(WebKit2)/NetworkProcess/cache \
     $(WebKit2)/NetworkProcess/mac \
-    $(WebKit2)/NetworkProcess/webrtc \
     $(WebKit2)/NetworkProcess/IndexedDB \
     $(WebKit2)/NetworkProcess/ServiceWorker \
     $(WebKit2)/NetworkProcess/WebStorage \
@@ -57,15 +55,12 @@ VPATH = \
     $(WebKit2)/WebProcess/GPU/graphics \
     $(WebKit2)/WebProcess/GPU/media \
     $(WebKit2)/WebProcess/GPU/media/ios \
-    $(WebKit2)/WebProcess/GPU/webrtc \
     $(WebKit2)/WebProcess/IconDatabase \
     $(WebKit2)/WebProcess/Inspector \
     $(WebKit2)/WebProcess/MediaCache \
     $(WebKit2)/WebProcess/MediaSession \
-    $(WebKit2)/WebProcess/MediaStream \
     $(WebKit2)/WebProcess/Model \
     $(WebKit2)/WebProcess/Network \
-    $(WebKit2)/WebProcess/Network/webrtc \
     $(WebKit2)/WebProcess/Notifications \
     $(WebKit2)/WebProcess/OriginData \
     $(WebKit2)/WebProcess/Plugins \
@@ -93,7 +88,6 @@ VPATH = \
     $(WebKit2)/UIProcess/Inspector/Agents \
     $(WebKit2)/UIProcess/Media \
     $(WebKit2)/UIProcess/Media/cocoa \
-    $(WebKit2)/UIProcess/MediaStream \
     $(WebKit2)/UIProcess/Model \
     $(WebKit2)/UIProcess/Network \
     $(WebKit2)/UIProcess/Notifications \
@@ -139,10 +133,6 @@ MESSAGE_RECEIVERS = \
 	NetworkProcess/SharedWorker/WebSharedWorkerServerToContextConnection \
 	NetworkProcess/NetworkProcess \
 	NetworkProcess/NetworkResourceLoader \
-	NetworkProcess/webrtc/NetworkMDNSRegister \
-	NetworkProcess/webrtc/NetworkRTCProvider \
-	NetworkProcess/webrtc/NetworkRTCMonitor \
-	NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy \
 	NetworkProcess/webtransport/NetworkTransportSession \
 	NetworkProcess/Cookies/WebCookieManager \
 	NetworkProcess/storage/NetworkStorageManager \
@@ -190,7 +180,6 @@ MESSAGE_RECEIVERS = \
 	UIProcess/Media/RemoteMediaSessionCoordinatorProxy \
 	UIProcess/Media/RemoteMediaSessionManagerProxy \
 	UIProcess/Model/ModelProcessProxy \
-	UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager \
 	UIProcess/SpeechRecognitionServer \
 	UIProcess/WebBackForwardList \
 	WebProcess/Databases/IndexedDB/WebIDBConnectionToServer \
@@ -203,8 +192,6 @@ MESSAGE_RECEIVERS = \
 	WebProcess/GPU/graphics/RemoteRenderingBackendProxy \
 	WebProcess/GPU/graphics/RemoteGraphicsContextGLProxy \
 	WebProcess/GPU/graphics/WebGPU/RemoteGPUProxy \
-	WebProcess/GPU/webrtc/LibWebRTCCodecs \
-	WebProcess/GPU/webrtc/SampleBufferDisplayLayer \
 	WebProcess/GPU/media/AudioVideoRendererRemoteMessageReceiver \
 	WebProcess/GPU/media/MediaPlayerPrivateRemote \
 	WebProcess/GPU/media/RemoteAudioHardwareListener \
@@ -217,7 +204,6 @@ MESSAGE_RECEIVERS = \
 	WebProcess/GPU/media/RemoteMediaResourceLoaderProxy \
 	WebProcess/GPU/media/RemoteRemoteCommandListener \
 	WebProcess/GPU/media/ios/RemoteMediaSessionHelper \
-	WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor \
 	WebProcess/WebStorage/StorageAreaMap \
 	WebProcess/UserContent/WebUserContentController \
 	WebProcess/Inspector/WasmDebuggerDispatcher \
@@ -233,17 +219,12 @@ MESSAGE_RECEIVERS = \
 	WebProcess/Network/NetworkProcessConnection \
 	WebProcess/Network/WebResourceLoader \
 	WebProcess/Network/WebTransportSession \
-	WebProcess/Network/webrtc/LibWebRTCNetwork \
-	WebProcess/Network/webrtc/RTCDataChannelRemoteManager \
-	WebProcess/Network/webrtc/WebRTCMonitor \
-	WebProcess/Network/webrtc/WebRTCResolver \
 	WebProcess/WebCoreSupport/RemoteWebLockRegistry \
 	WebProcess/WebCoreSupport/WebBroadcastChannelRegistry \
 	WebProcess/WebCoreSupport/WebFileSystemStorageConnection \
 	WebProcess/WebCoreSupport/WebPermissionController \
 	WebProcess/WebCoreSupport/WebScreenOrientationManager \
 	WebProcess/WebCoreSupport/WebSpeechRecognitionConnection \
-	WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager \
 	WebProcess/Storage/WebSharedWorkerContextManagerConnection \
 	WebProcess/Storage/WebSharedWorkerObjectConnection \
 	WebProcess/Storage/WebSWContextManagerConnection \
@@ -251,7 +232,6 @@ MESSAGE_RECEIVERS = \
 	WebProcess/WebProcess \
 	WebProcess/cocoa/PlaybackSessionManager \
 	WebProcess/cocoa/RemoteCaptureSampleManager \
-	WebProcess/cocoa/UserMediaCaptureManager \
 	WebProcess/cocoa/VideoPresentationManager \
 	WebProcess/Automation/WebAutomationSessionProxy \
 	WebProcess/FullScreen/WebFullScreenManager \
@@ -303,11 +283,6 @@ MESSAGE_RECEIVERS = \
 	GPUProcess/graphics/WebGPU/RemoteShaderModule \
 	GPUProcess/graphics/WebGPU/RemoteTexture \
 	GPUProcess/graphics/WebGPU/RemoteTextureView \
-	GPUProcess/webrtc/LibWebRTCCodecsProxy \
-	GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager \
-	GPUProcess/webrtc/RemoteSampleBufferDisplayLayer \
-	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager \
-	GPUProcess/webrtc/UserMediaCaptureManagerProxy \
 	GPUProcess/GPUProcess \
 	GPUProcess/media/RemoteImageDecoderAVFProxy \
 	GPUProcess/media/RemoteLegacyCDMSessionProxy \
@@ -337,7 +312,6 @@ MESSAGE_RECEIVERS = \
 GENERATE_MESSAGE_RECEIVER_SCRIPT = $(WebKit2)/Scripts/generate-message-receiver.py
 GENERATE_MESSAGE_RECEIVER_SCRIPTS = \
     $(GENERATE_MESSAGE_RECEIVER_SCRIPT) \
-    $(WebKit2)/Scripts/webkit/__init__.py \
     $(WebKit2)/Scripts/webkit/messages.py \
     $(WebKit2)/Scripts/webkit/model.py \
     $(WebKit2)/Scripts/webkit/parser.py \
@@ -496,7 +470,6 @@ JSON_RPC_GENERATOR_SCRIPTS = \
 	$(JavaScriptCore_SCRIPTS_DIR)/generate_cpp_protocol_types_implementation.py \
 	$(JavaScriptCore_SCRIPTS_DIR)/generator_templates.py \
 	$(JavaScriptCore_SCRIPTS_DIR)/generator.py \
-	$(JavaScriptCore_SCRIPTS_DIR)/models.py \
 	$(JavaScriptCore_SCRIPTS_DIR)/generate-inspector-protocol-bindings.py \
 	$(JavaScriptCore_SCRIPTS_DIR)/generate-combined-inspector-json.py \
 	$(JavaScriptCore_SCRIPTS_DIR)/UpdateContents.py \
@@ -775,8 +748,6 @@ SERIALIZATION_DESCRIPTION_FILES = \
 	Shared/ProcessQualified.serialization.in \
 	Shared/ProvisionalFrameCreationParameters.serialization.in \
 	Shared/PushMessageForTesting.serialization.in \
-	Shared/RTCNetwork.serialization.in \
-	Shared/RTCPacketOptions.serialization.in \
 	Shared/RemoteWebTouchEvent.serialization.in \
 	Shared/RemoteWorkerInitializationData.serialization.in \
 	Shared/RemoteWorkerType.serialization.in \
@@ -946,9 +917,7 @@ SERIALIZATION_DESCRIPTION_FILES = \
 	WebProcess/GPU/media/RemoteAudioVideoRendererState.serialization.in \
 	WebProcess/GPU/media/RemoteMediaPlayerState.serialization.in \
 	WebProcess/GPU/media/RemoteVideoFrameProxyProperties.serialization.in \
-	WebProcess/GPU/webrtc/SharedVideoFrame.serialization.in \
 	WebProcess/Media/RemoteMediaSessionState.serialization.in \
-	WebProcess/MediaStream/MediaDeviceSandboxExtensions.serialization.in \
 	WebProcess/Model/ModelProcessConnectionInfo.serialization.in \
 	WebProcess/Network/NetworkProcessConnectionInfo.serialization.in \
 	WebProcess/UserContent/InjectUserScriptImmediately.serialization.in \
@@ -967,7 +936,6 @@ WEBCORE_SERIALIZATION_DESCRIPTION_FILES = \
 	IndexedDB.serialization.in \
 	LayoutMilestones.serialization.in \
 	MediaProducer.serialization.in \
-	MDNSRegisterError.serialization.in \
 	PlatformEvent.serialization.in \
 	PlatformMediaSession.serialization.in \
 	PlatformScreen.serialization.in \

@@ -48,29 +48,6 @@ enum class WebCore::MediaSessionReadyState : uint8_t {
 };
 #endif // ENABLE(MEDIA_SESSION_COORDINATOR)
 
-#if ENABLE(WEB_RTC)
-header: <WebCore/RTCErrorDetailType.h>
-enum class WebCore::RTCErrorDetailType : uint8_t {
-    DataChannelFailure,
-    DtlsFailure,
-    FingerprintFailure,
-    SctpFailure,
-    SdpSyntaxError
-};
-
-header: <WebCore/RTCIceComponent.h>
-enum class WebCore::RTCIceComponent : uint8_t {
-     Rtp,
-     Rtcp
-};
-
-header: <WebCore/RTCIceProtocol.h>
-enum class WebCore::RTCIceProtocol : uint8_t {
-     Udp,
-     Tcp
-};
-
-#endif // ENABLE(WEB_RTC)
 
 #if ENABLE(MEDIA_SESSION)
 struct WebCore::MediaPositionState {
@@ -80,14 +57,6 @@ struct WebCore::MediaPositionState {
 };
 #endif // ENABLE(MEDIA_SESSION)
 
-#if ENABLE(WEB_RTC)
-struct WebCore::DetachedRTCDataChannel {
-    WebCore::RTCDataChannelIdentifier identifier;
-    String label;
-    WebCore::RTCDataChannelInit options;
-    WebCore::RTCDataChannelState state;
-};
-#endif
 
 #if ENABLE(WEB_CODECS)
 enum class WebCore::WebCodecsEncodedVideoChunkType : bool;
@@ -127,41 +96,7 @@ struct WebCore::VideoFrameMetadata {
 };
 #endif // ENABLE(VIDEO)
 
-#if ENABLE(MEDIA_STREAM)
-struct WebCore::MediaStreamRequest {
-    WebCore::MediaStreamRequest::Type type;
-    WebCore::MediaConstraints audioConstraints;
-    WebCore::MediaConstraints videoConstraints;
-    bool isUserGesturePriviledged;
-    Markable<WebCore::PageIdentifier> pageIdentifier;
-}
-[LegacyPopulateFromEmptyConstructor, CustomHeader] class WebCore::MediaTrackConstraintSetMap {
-    std::optional<WebCore::IntConstraint> m_width;
-    std::optional<WebCore::IntConstraint> m_height;
-    std::optional<WebCore::IntConstraint> m_sampleRate;
-    std::optional<WebCore::IntConstraint> m_sampleSize;
-    std::optional<WebCore::DoubleConstraint> m_aspectRatio;
-    std::optional<WebCore::DoubleConstraint> m_frameRate;
-    std::optional<WebCore::DoubleConstraint> m_volume;
-    std::optional<WebCore::BooleanConstraint> m_echoCancellation;
-    std::optional<WebCore::BooleanConstraint> m_displaySurface;
-    std::optional<WebCore::BooleanConstraint> m_logicalSurface;
-    std::optional<WebCore::StringConstraint> m_facingMode;
-    std::optional<WebCore::StringConstraint> m_deviceId;
-    std::optional<WebCore::StringConstraint> m_groupId;
-    std::optional<WebCore::StringConstraint> m_whiteBalanceMode;
-    std::optional<WebCore::DoubleConstraint> m_zoom;
-    std::optional<WebCore::BooleanConstraint> m_torch;
-    std::optional<WebCore::BooleanConstraint> m_backgroundBlur;
-    std::optional<WebCore::BooleanConstraint> m_powerEfficient;
-}
-#endif
 
-#if ! ENABLE(MEDIA_STREAM)
-struct WebCore::MediaStreamRequest {
-    WebCore::MediaStreamRequest::Type type;
-};
-#endif
 
 #if ENABLE(VIDEO)
 struct WebCore::VideoPlaybackQualityMetrics {
@@ -173,13 +108,6 @@ struct WebCore::VideoPlaybackQualityMetrics {
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-struct WebCore::MediaConstraints {
-    WebCore::MediaTrackConstraintSetMap mandatoryConstraints;
-    Vector<WebCore::MediaTrackConstraintSetMap> advancedConstraints;
-    bool isValid;
-};
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
 struct WebCore::CDMKeySystemConfiguration {
@@ -355,21 +283,6 @@ header: <WebCore/CDMInstance.h>
 };
 #endif
 
-#if ENABLE(WEB_RTC)
-enum class WebCore::RTCDataChannelState : uint8_t {
-    Connecting,
-    Open,
-    Closing,
-    Closed
-};
-
-enum class WebCore::RTCPriorityType : uint8_t {
-    VeryLow,
-    Low,
-    Medium,
-    High
-};
-#endif
 
 #if ENABLE(VIDEO)
 [Nested, AdditionalEncoder=StreamConnectionEncoder] enum class WebCore::GenericCueData::Alignment : uint8_t {
@@ -408,236 +321,6 @@ header: <WebCore/InbandGenericCue.h>
 };
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-
-[Nested] enum class WebCore::MediaConstraint::DataType : uint8_t {
-    Integer,
-    Double,
-    Boolean,
-    String
-};
-
-enum class WebCore::MediaConstraintType : uint8_t {
-    Unknown,
-    Width,
-    Height,
-    AspectRatio,
-    FrameRate,
-    FacingMode,
-    Volume,
-    SampleRate,
-    SampleSize,
-    EchoCancellation,
-    DeviceId,
-    GroupId,
-    DisplaySurface,
-    LogicalSurface,
-    WhiteBalanceMode,
-    Zoom,
-    Torch,
-    FocusDistance,
-    BackgroundBlur,
-    PowerEfficient,
-};
-
-header: <WebCore/MediaConstraints.h>
-[CustomHeader] class WebCore::MediaConstraint {
-    WebCore::MediaConstraint::DataType dataType();
-};
-
-[CustomHeader] class WebCore::IntConstraint : WebCore::MediaConstraint {
-    std::optional<int> m_min;
-    std::optional<int> m_max;
-    std::optional<int> m_exact;
-    [Validator='*dataType == WebCore::MediaConstraint::DataType::Integer'] std::optional<int> m_ideal;
-};
-
-[CustomHeader] class WebCore::DoubleConstraint : WebCore::MediaConstraint {
-    std::optional<double> m_min;
-    std::optional<double> m_max;
-    std::optional<double> m_exact;
-    [Validator='*dataType == WebCore::MediaConstraint::DataType::Double'] std::optional<double> m_ideal;
-};
-
-[CustomHeader] class WebCore::BooleanConstraint : WebCore::MediaConstraint {
-    std::optional<bool> m_exact;
-    [Validator='*dataType == WebCore::MediaConstraint::DataType::Boolean'] std::optional<bool> m_ideal;
-};
-
-[CustomHeader] class WebCore::StringConstraint : WebCore::MediaConstraint {
-    Vector<String> m_exact;
-    [Validator='*dataType == WebCore::MediaConstraint::DataType::String'] Vector<String> m_ideal;
-};
-
-header: <WebCore/VideoPreset.h>
-[CustomHeader] struct WebCore::FrameRateRange {
-    double minimum;
-    double maximum;
-};
-
-[CustomHeader] struct WebCore::VideoPresetData {
-    WebCore::IntSize size;
-    Vector<WebCore::FrameRateRange> frameRateRanges;
-    double minZoom;
-    double maxZoom;
-    bool isEfficient;
-};
-
-class WebCore::RealtimeMediaSourceSupportedConstraints {
-    bool supportsWidth();
-    bool supportsHeight();
-    bool supportsAspectRatio();
-    bool supportsFrameRate();
-    bool supportsFacingMode();
-    bool supportsVolume();
-    bool supportsSampleRate();
-    bool supportsSampleSize();
-    bool supportsEchoCancellation();
-    bool supportsDeviceId();
-    bool supportsGroupId();
-    bool supportsDisplaySurface();
-    bool supportsLogicalSurface();
-    bool supportsFocusDistance();
-    bool supportsWhiteBalanceMode();
-    bool supportsZoom();
-    bool supportsTorch();
-    bool supportsBackgroundBlur();
-    bool supportsPowerEfficient();
-};
-
-[Nested] enum class WebCore::RealtimeMediaSource::Type : bool;
-
-enum class WebCore::VideoFacingMode : uint8_t {
-    Unknown,
-    User,
-    Environment,
-    Left,
-    Right
-};
-
-enum class WebCore::DisplaySurfaceType : uint8_t {
-    Monitor,
-    Window,
-    Application,
-    Browser,
-    Invalid,
-};
-
-header: <WebCore/MeteringMode.h>
-[CustomHeader] enum class WebCore::MeteringMode : uint8_t {
-    None,
-    Manual,
-    SingleShot,
-    Continuous,
-};
-
-class WebCore::RealtimeMediaSourceSettings {
-    uint32_t width();
-    uint32_t height();
-    float frameRate();
-    WebCore::VideoFacingMode facingMode();
-    double volume();
-    uint32_t sampleRate();
-    uint32_t sampleSize();
-    bool echoCancellation();
-    String deviceId();
-    String groupId();
-    String label();
-    WebCore::DisplaySurfaceType displaySurface();
-    bool logicalSurface();
-    WebCore::MeteringMode whiteBalanceMode();
-    double zoom();
-    bool torch();
-    bool backgroundBlur();
-    bool powerEfficient();
-    WebCore::RealtimeMediaSourceSupportedConstraints supportedConstraints();
-};
-
-[Nested] enum class WebCore::CaptureDevice::DeviceType : uint8_t {
-    Unknown,
-    Microphone,
-    Speaker,
-    Camera,
-    Screen,
-    Window,
-    SystemAudio
-    Canvas
-};
-
-class WebCore::CaptureDevice {
-    String persistentId();
-    WebCore::CaptureDevice::DeviceType type();
-    String label();
-    String groupId();
-    bool enabled();
-    bool isDefault();
-    bool isMockDevice();
-    bool isEphemeral();
-};
-
-struct WebCore::CaptureDeviceWithCapabilities {
-    WebCore::CaptureDevice device;
-    WebCore::RealtimeMediaSourceCapabilities capabilities;
-};
-
-[Nested] enum class WebCore::RealtimeMediaSourceCapabilities::EchoCancellation : uint8_t {
-    Off,
-    On,
-    OnOrOff
-}
-
-[Nested] enum class WebCore::RealtimeMediaSourceCapabilities::BackgroundBlur : uint8_t {
-    Off,
-    On,
-    OnOff
-}
-
-header: <WebCore/RealtimeMediaSourceCapabilities.h>
-[CustomHeader] class WebCore::DoubleCapabilityRange {
-    double min();
-    [Validator='min <= max'] double max();
-};
-
-header: <WebCore/RealtimeMediaSourceCapabilities.h>
-[CustomHeader] class WebCore::LongCapabilityRange {
-    int min();
-    [Validator='min <= max'] int max();
-};
-
-class WebCore::RealtimeMediaSourceCapabilities {
-    WebCore::LongCapabilityRange width();
-    WebCore::LongCapabilityRange height();
-    WebCore::DoubleCapabilityRange aspectRatio();
-    WebCore::DoubleCapabilityRange frameRate();
-    Vector<WebCore::VideoFacingMode> facingMode();
-    WebCore::DoubleCapabilityRange volume();
-    WebCore::LongCapabilityRange sampleRate();
-    WebCore::LongCapabilityRange sampleSize();
-    WebCore::RealtimeMediaSourceCapabilities::EchoCancellation echoCancellation();
-    String deviceId();
-    String groupId();
-    WebCore::DoubleCapabilityRange focusDistance();
-    Vector<WebCore::MeteringMode> whiteBalanceModes();
-    WebCore::DoubleCapabilityRange zoom();
-    bool torch();
-    WebCore::RealtimeMediaSourceCapabilities::BackgroundBlur backgroundBlur();
-    bool powerEfficient();
-    WebCore::RealtimeMediaSourceSupportedConstraints supportedConstraints();
-};
-
-header: <WebCore/MockMediaDevice.h>
-[Nested, OptionSet] enum class WebCore::MockMediaDevice::Flag : uint8_t {
-    Ephemeral
-    Invalid
-};
-
-header: <WebCore/RealtimeMediaSourceCenter.h>
-[Nested] struct WebCore::RealtimeMediaSourceCenter::ValidDevices {
-    Vector<WebCore::CaptureDevice> audioDevices;
-    Vector<WebCore::CaptureDevice> videoDevices;
-};
-
-#endif // ENABLE(MEDIA_STREAM)
 
 #if ENABLE(VIDEO)
 header: <WebCore/ImmersiveVideoMetadata.h>
@@ -746,126 +429,8 @@ struct WebCore::PlatformVideoTrackConfiguration : WebCore::PlatformTrackConfigur
 
 #endif
 
-#if ENABLE(WEB_RTC)
 
-header: <WebCore/RTCDataChannelHandler.h>
-[CustomHeader] struct WebCore::RTCDataChannelInit {
-    bool ordered;
-    std::optional<unsigned short> maxPacketLifeTime;
-    std::optional<unsigned short> maxRetransmits;
-    String protocol;
-    bool negotiated;
-    std::optional<unsigned short> id;
-    WebCore::RTCPriorityType priority;
-};
 
-#endif // ENABLE(WEB_RTC)
-
-#if ENABLE(MEDIA_STREAM)
-
-header: <WebCore/MockMediaDevice.h>
-[CustomHeader] struct WebCore::MockMicrophoneProperties {
-    int defaultSampleRate;
-    std::optional<bool> echoCancellation;
-    uint32_t deviceID;
-};
-
-header: <WebCore/MockMediaDevice.h>
-[CustomHeader] struct WebCore::MockSpeakerProperties {
-    String relatedMicrophoneId;
-    int defaultSampleRate;
-};
-
-header: <WebCore/MockMediaDevice.h>
-[CustomHeader] struct WebCore::MockCameraProperties {
-    double defaultFrameRate;
-    WebCore::VideoFacingMode facingMode;
-    Vector<WebCore::VideoPresetData> presets;
-    WebCore::Color fillColor;
-    Vector<WebCore::MeteringMode> whiteBalanceMode;
-    bool hasTorch;
-};
-
-header: <WebCore/MockMediaDevice.h>
-[CustomHeader] struct WebCore::MockDisplayProperties {
-    WebCore::CaptureDevice::DeviceType type;
-    WebCore::Color fillColor;
-    WebCore::IntSize defaultSize;
-};
-
-header: <WebCore/MockMediaDevice.h>
-[CustomHeader] struct WebCore::MockMediaDevice {
-    String persistentId;
-    String label;
-    OptionSet<WebCore::MockMediaDevice::Flag> flags;
-    bool isDefault;
-    Variant<WebCore::MockMicrophoneProperties, WebCore::MockSpeakerProperties, WebCore::MockCameraProperties, WebCore::MockDisplayProperties> properties;
-};
-
-[Nested] enum class WebCore::MockMediaDevice::Flag : uint8_t {
-    Ephemeral
-    Invalid
-};
-
-#endif // ENABLE(MEDIA_STREAM)
-
-#if ENABLE(MEDIA_STREAM)
-enum class WebCore::MediaAccessDenialReason : uint8_t {
-    NoReason,
-    NoConstraints,
-    UserMediaDisabled,
-    NoCaptureDevices,
-    InvalidConstraint,
-    HardwareError,
-    PermissionDenied,
-    InvalidAccess,
-    OtherFailure
-};
-
-header: <WebCore/RealtimeMediaSource.h>
-[CustomHeader] struct WebCore::CaptureSourceError {
-    String errorMessage;
-    WebCore::MediaAccessDenialReason denialReason;
-    WebCore::MediaConstraintType invalidConstraint;
-};
-
-header: <WebCore/FillLightMode.h>
-enum class WebCore::FillLightMode : uint8_t {
-    Auto,
-    Off,
-    Flash,
-};
-
-header: <WebCore/RedEyeReduction.h>
-enum class WebCore::RedEyeReduction : uint8_t {
-    Never,
-    Always,
-    Controllable,
-};
-
-header: <WebCore/MediaSettingsRange.h>
-[CustomHeader] struct WebCore::MediaSettingsRange {
-    std::optional<double> max;
-    std::optional<double> min;
-    std::optional<double> step;
-};
-
-header: <WebCore/PhotoCapabilities.h>
-[CustomHeader] struct WebCore::PhotoCapabilities {
-    std::optional<WebCore::RedEyeReduction> redEyeReduction;
-    std::optional<WebCore::MediaSettingsRange> imageHeight;
-    std::optional<WebCore::MediaSettingsRange> imageWidth;
-    std::optional<Vector<WebCore::FillLightMode>> fillLightMode;
-};
-
-header: <WebCore/PhotoSettings.h>
-[CustomHeader] struct WebCore::PhotoSettings {
-    std::optional<WebCore::FillLightMode> fillLightMode;
-    std::optional<double> imageHeight;
-    std::optional<double> imageWidth;
-    std::optional<bool> redEyeReduction;
-};
-#endif
 
 #if ENABLE(VIDEO)
 header: <WebCore/PlatformTextTrack.h>
@@ -1000,9 +565,6 @@ using WebCore::SourceBufferPrivate::SamplesPromise::Result = Expected<Vector<Str
 header: <WebCore/MediaSourceConfiguration.h>
 struct WebCore::MediaSourceConfiguration {
     bool textTracksEnabled;
-#if ENABLE(MEDIA_RECORDER_WEBM)
-    bool supportsLimitedMatroska;
-#endif
 };
 
 #endif

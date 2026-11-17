@@ -24,6 +24,7 @@
  */
 
 #import "config.h"
+#include "SampleBufferDisplayLayer.h"
 
 #if USE(AVFOUNDATION)
 

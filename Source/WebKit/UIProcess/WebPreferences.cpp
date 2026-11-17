@@ -32,7 +32,6 @@
 #include "WebPreferencesKeys.h"
 #include "WebProcessPool.h"
 #include <WebCore/DeprecatedGlobalSettings.h>
-#include <WebCore/LibWebRTCProvider.h>
 #include <WebCore/StorageBlockingPolicy.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ThreadingPrimitives.h>

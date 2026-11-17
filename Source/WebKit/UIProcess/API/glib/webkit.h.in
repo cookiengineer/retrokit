@@ -55,7 +55,6 @@
 #include <@API_INCLUDE_PREFIX@/WebKitCookieManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitCredential.h>
 #include <@API_INCLUDE_PREFIX@/WebKitDefines.h>
-#include <@API_INCLUDE_PREFIX@/WebKitDeviceInfoPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitDownload.h>
 #include <@API_INCLUDE_PREFIX@/WebKitEditingCommands.h>
 #include <@API_INCLUDE_PREFIX@/WebKitEditorState.h>

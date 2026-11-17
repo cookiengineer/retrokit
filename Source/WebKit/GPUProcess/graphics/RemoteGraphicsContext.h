@@ -35,6 +35,7 @@
 #include "RemoteRenderingBackend.h"
 #include "StreamMessageReceiver.h"
 #include "StreamServerConnection.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/ControlFactory.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/RenderingResourceIdentifier.h>

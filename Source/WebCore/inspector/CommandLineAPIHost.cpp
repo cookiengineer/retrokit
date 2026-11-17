@@ -58,10 +58,6 @@
 #include <wtf/TZoneMallocInlines.h>
 #include "FrameDestructionObserverInlines.h"
 
-#if ENABLE(WEB_RTC)
-#include "JSRTCPeerConnection.h"
-#include "RTCLogsCallback.h"
-#endif
 
 namespace WebCore {
 
@@ -161,27 +157,6 @@ CommandLineAPIHost::EventListenersRecord CommandLineAPIHost::getEventListeners(J
 
     return result;
 }
-
-#if ENABLE(WEB_RTC)
-void CommandLineAPIHost::gatherRTCLogs(JSGlobalObject& globalObject, RefPtr<RTCLogsCallback>&& callback)
-{
-    RefPtr document = dynamicDowncast<Document>(downcast<JSDOMGlobalObject>(&globalObject)->scriptExecutionContext());
-    if (!document)
-        return;
-
-    if (!callback) {
-        document->stopGatheringRTCLogs();
-        return;
-    }
-
-    document->startGatheringRTCLogs([callback = callback.releaseNonNull()] (auto&& logType, auto&& logMessage, auto&& logLevel, auto&& connection) mutable {
-        ASSERT(!logType.isNull());
-        ASSERT(!logMessage.isNull());
-
-        callback->invoke({ WTF::move(logType), WTF::move(logMessage), WTF::move(logLevel), WTF::move(connection) });
-    });
-}
-#endif
 
 void CommandLineAPIHost::copyText(const String& text)
 {

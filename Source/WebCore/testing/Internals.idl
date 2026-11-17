@@ -1091,14 +1091,6 @@ enum ContentsFormat {
 
     [Conditional=WEB_AUDIO] undefined useMockAudioDestinationCocoa();
 
-    [Conditional=WEB_RTC] undefined useMockRTCPeerConnectionFactory(DOMString testCase);
-    [Conditional=WEB_RTC] undefined setICECandidateFiltering(boolean enabled);
-    [Conditional=WEB_RTC] undefined setEnumeratingAllNetworkInterfacesEnabled(boolean enabled);
-    [Conditional=WEB_RTC] undefined stopPeerConnection(RTCPeerConnection connection);
-    [Conditional=WEB_RTC] undefined clearPeerConnectionFactory();
-    [Conditional=WEB_RTC] undefined clearWebRTCCodecsConnection();
-    [Conditional=WEB_RTC] undefined setEnableWebRTCEncryption(boolean enabled);
-    [Conditional=WEB_RTC] boolean hasPeerConnectionEnabledServiceClass(RTCPeerConnection connection);
 
     [Conditional=VIDEO] undefined simulateSystemSleep();
     [Conditional=VIDEO] undefined simulateSystemWake();
@@ -1206,37 +1198,8 @@ enum ContentsFormat {
     undefined setPageIsInWindow(boolean isInWindow);
     boolean isPageActive();
 
-    [Conditional=WEB_RTC] undefined applyRotationForOutgoingVideoSources(RTCPeerConnection connection);
-    [Conditional=WEB_RTC] undefined setWebRTCH265Support(boolean allowed);
-    [Conditional=WEB_RTC] undefined setWebRTCVP9Support(boolean supportVP9Profile0, boolean supportVP9Profile2);
-    [Conditional=WEB_RTC] undefined disableWebRTCHardwareVP9();
-    [Conditional=WEB_RTC] boolean isSupportingVP9HardwareDecoder();
-    [Conditional=WEB_RTC] Promise<boolean> isVP9HardwareDecoderUsed(RTCPeerConnection connection);
-    [Conditional=WEB_RTC] boolean isSupportingAV1HardwareDecoder();
 
-    [Conditional=MEDIA_STREAM] undefined setMockAudioTrackChannelNumber(MediaStreamTrack track, unsigned short count);
-    [Conditional=MEDIA_STREAM] undefined setShouldInterruptAudioOnPageVisibilityChange(boolean shouldInterrupt);
-    [Conditional=MEDIA_STREAM] undefined setCameraMediaStreamTrackOrientation(MediaStreamTrack track, short orientation);
-    [Conditional=MEDIA_STREAM] undefined observeMediaStreamTrack(MediaStreamTrack track);
-    [Conditional=MEDIA_STREAM] Promise<short> mediaStreamTrackVideoFrameRotation();
-    [Conditional=MEDIA_STREAM] readonly attribute unsigned long trackAudioSampleCount;
-    [Conditional=MEDIA_STREAM] readonly attribute unsigned long trackVideoSampleCount;
-    [Conditional=MEDIA_STREAM] undefined delayMediaStreamTrackSamples(MediaStreamTrack track, float delay);
-    [Conditional=MEDIA_STREAM] undefined setMediaStreamTrackMuted(MediaStreamTrack track, boolean muted);
-    [Conditional=MEDIA_STREAM] undefined removeMediaStreamTrack(MediaStream stream, MediaStreamTrack track);
-    [Conditional=MEDIA_STREAM] undefined simulateMediaStreamTrackCaptureSourceFailure(MediaStreamTrack track);
-    [Conditional=MEDIA_STREAM] undefined setMediaStreamTrackIdentifier(MediaStreamTrack track, DOMString identifier);
-    [Conditional=MEDIA_STREAM] undefined setMediaStreamSourceInterrupted(MediaStreamTrack track, boolean interrupted);
-    [Conditional=MEDIA_STREAM] boolean isMediaStreamSourceInterrupted(MediaStreamTrack track);
-    [Conditional=MEDIA_STREAM] boolean isMediaStreamSourceEnded(MediaStreamTrack track);
-    [Conditional=MEDIA_STREAM] boolean isMockRealtimeMediaSourceCenterEnabled();
-    [Conditional=MEDIA_STREAM] boolean shouldAudioTrackPlay(AudioTrack track);
-    [Conditional=MEDIA_STREAM] DOMString mediaStreamTrackPersistentId(MediaStreamTrack track);
-    [Conditional=MEDIA_STREAM] unsigned long audioCaptureSourceCount();
-    [Conditional=MEDIA_STREAM] boolean supportsMultiMicrophoneCaptureWithoutEchoCancellation();
-    [Conditional=MEDIA_STREAM] undefined deleteAudioUnit();
 
-    [Conditional=WEB_RTC] readonly attribute DOMString rtcNetworkInterfaceName;
 
     boolean isHardwareVP9DecoderExpected();
 

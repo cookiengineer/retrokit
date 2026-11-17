@@ -171,9 +171,6 @@ protected:
 #if ENABLE(MEDIA_SOURCE)
     void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) override;
 #endif
-#if ENABLE(MEDIA_STREAM)
-    void load(MediaStreamPrivate&) override { setNetworkState(MediaPlayer::NetworkState::FormatError); }
-#endif
     void cancelLoad() override = 0;
 
     void prepareToPlay() override;

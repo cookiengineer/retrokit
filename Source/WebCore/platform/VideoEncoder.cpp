@@ -29,7 +29,6 @@
 #if ENABLE(VIDEO)
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
-#include "LibWebRTCVPXVideoEncoder.h"
 #endif
 
 #if USE(GSTREAMER)

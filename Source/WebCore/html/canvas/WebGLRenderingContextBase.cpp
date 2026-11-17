@@ -844,16 +844,6 @@ RefPtr<ByteArrayPixelBuffer> WebGLRenderingContextBase::drawingBufferToPixelBuff
     return pixelBuffer;
 }
 
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-RefPtr<VideoFrame> WebGLRenderingContextBase::surfaceBufferToVideoFrame(SurfaceBuffer buffer)
-{
-    if (isContextLost())
-        return nullptr;
-    if (buffer == SurfaceBuffer::DrawingBuffer)
-        clearIfComposited(CallerTypeOther);
-    return protect(graphicsContextGL())->surfaceBufferToVideoFrame(toGCGLSurfaceBuffer(buffer));
-}
-#endif
 
 RefPtr<ImageBuffer> WebGLRenderingContextBase::transferToImageBuffer()
 {

@@ -86,7 +86,6 @@
 #include "ThreadableWebSocketChannel.h"
 #include "UserContentProvider.h"
 #include "VisitedLinkStore.h"
-#include "WebRTCProvider.h"
 #include "WebTransportSession.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <pal/SessionID.h>
@@ -108,7 +107,6 @@
 #endif
 
 #if USE(GSTREAMER_WEBRTC) && USE(LIBRICE)
-#include "GStreamerIceAgent.h"
 #endif
 
 namespace WebCore {
@@ -1265,7 +1263,6 @@ PageConfiguration pageConfigurationWithEmptyClients(std::optional<PageIdentifier
         sessionID,
         makeUniqueRef<EmptyEditorClient>(),
         adoptRef(*new EmptySocketProvider),
-        WebRTCProvider::create(),
         CacheStorageProvider::create(),
         adoptRef(*new EmptyUserContentProvider),
         adoptRef(*new EmptyBackForwardClient),

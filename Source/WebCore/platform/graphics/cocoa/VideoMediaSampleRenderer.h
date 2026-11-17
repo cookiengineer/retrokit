@@ -32,6 +32,7 @@
 #include "SampleMap.h"
 #include "VideoPlaybackQualityMetrics.h"
 #include "WebAVSampleBufferListener.h"
+#include "SampleBufferDisplayLayer.h"
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>

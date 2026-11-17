@@ -135,10 +135,6 @@ static Expected<PermissionState, Exception> processPermissionQueryResult(std::op
 
 
 
-#if ENABLE(MEDIA_STREAM)
-    if (document.quirks().shouldEnableCameraAndMicrophonePermissionStateQuirk() && (permissionDescriptor.name == PermissionName::Camera || permissionDescriptor.name == PermissionName::Microphone) && *permissionState == PermissionState::Prompt)
-        permissionState = PermissionState::Granted;
-#endif
 
     return *permissionState;
 }

@@ -6,13 +6,11 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
     )
 
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-        "${WEBCORE_DIR}/Modules/mediastream/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/mse"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/eme"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/telemetry"
         "${WEBCORE_DIR}/platform/gstreamer"
-        "${WEBCORE_DIR}/platform/mediarecorder/gstreamer"
     )
 
     list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
@@ -28,10 +26,6 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         platform/graphics/gstreamer/GStreamerCommon.h
         platform/graphics/gstreamer/GUniquePtrGStreamer.h
 
-        platform/mediastream/gstreamer/GStreamerWebRTCProvider.h
-        platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.h
-        platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.h
-        platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.h
     )
 
     if (ENABLE_MEDIA_TELEMETRY)
@@ -138,8 +132,6 @@ if (ENABLE_VIDEO)
         if (USE_LIBRICE)
             list(APPEND WebCore_LIBRARIES Rice::Proto)
             list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-                Modules/mediastream/gstreamer/GStreamerIceAgent.h
-                Modules/mediastream/gstreamer/RiceGatherResult.h
 
                 platform/rice/GRefPtrRice.h
                 platform/rice/GUniquePtrRice.h
@@ -147,7 +139,6 @@ if (ENABLE_VIDEO)
                 platform/rice/RiceVersioning.h
             )
             list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-                "${WEBCORE_DIR}/Modules/mediastream/gstreamer"
                 "${WEBCORE_DIR}/platform/rice"
               )
         endif ()

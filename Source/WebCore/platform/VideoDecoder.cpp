@@ -27,8 +27,6 @@
 #include "VideoDecoder.h"
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
-#include "LibWebRTCVPXVideoDecoder.h"
-#include "WebRTCProvider.h"
 #endif
 
 #if USE(GSTREAMER)

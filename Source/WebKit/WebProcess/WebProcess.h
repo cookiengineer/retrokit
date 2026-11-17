@@ -60,9 +60,6 @@
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "MediaDeviceSandboxExtensions.h"
-#endif
 
 #if ENABLE(WEB_CODECS)
 #include "RemoteVideoCodecFactory.h"
@@ -193,9 +190,6 @@ using WebTransportSessionIdentifier = AtomicObjectIdentifier<WebTransportSession
 class LayerHostingContext;
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-class SpeechRecognitionRealtimeMediaSourceManager;
-#endif
 
 class WebProcess final : public AuxiliaryProcess {
     WTF_MAKE_TZONE_ALLOCATED(WebProcess);
@@ -230,9 +224,6 @@ public:
     }
 
     WebNotificationManager& notificationManager();
-#if ENABLE(MEDIA_STREAM)
-    UserMediaCaptureManager& userMediaCaptureManager();
-#endif
 
     // ref() & deref() do nothing since WebProcess is a singleton object.
     // This is for objects owned by the WebProcess to forward their refcounting to their owner.
@@ -321,9 +312,6 @@ public:
 
 #if PLATFORM(COCOA) && USE(LIBWEBRTC)
     LibWebRTCCodecs& libWebRTCCodecs();
-#endif
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    AudioMediaStreamTrackRendererInternalUnitManager& audioMediaStreamTrackRendererInternalUnitManager();
 #endif
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     RemoteLegacyCDMFactory& legacyCDMFactory();
@@ -483,9 +471,6 @@ public:
     void didWriteToPasteboardAsynchronously(const String& pasteboardName);
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    SpeechRecognitionRealtimeMediaSourceManager& ensureSpeechRecognitionRealtimeMediaSourceManager();
-#endif
 
     bool requiresScriptTrackingPrivacyProtections(const URL&, const WebCore::SecurityOrigin& topOrigin) const;
     bool shouldAllowScriptAccess(const URL&, const WebCore::SecurityOrigin& topOrigin, WebCore::ScriptTrackingPrivacyCategory) const;
@@ -672,18 +657,6 @@ private:
 
     bool filterUnhandledMessage(IPC::Connection&, IPC::Decoder&) override;
 
-#if ENABLE(MEDIA_STREAM)
-    void addMockMediaDevice(const WebCore::MockMediaDevice&);
-    void clearMockMediaDevices();
-    void removeMockMediaDevice(const String&);
-    void setMockMediaDeviceIsEphemeral(const String&, bool);
-    void resetMockMediaDevices();
-#if ENABLE(SANDBOX_EXTENSIONS)
-    void grantUserMediaDeviceSandboxExtensions(MediaDeviceSandboxExtensions&&);
-    void revokeUserMediaDeviceSandboxExtensions(const Vector<String>&);
-#endif
-
-#endif
 
     void setThirdPartyCookieBlockingMode(WebCore::ThirdPartyCookieBlockingMode, CompletionHandler<void()>&&);
     void setDomainsWithUserInteraction(HashSet<WebCore::RegistrableDomain>&&);
@@ -820,9 +793,6 @@ private:
     RemoteVideoCodecFactory m_remoteVideoCodecFactory;
 #endif
 #endif
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    std::unique_ptr<AudioMediaStreamTrackRendererInternalUnitManager> m_audioMediaStreamTrackRendererInternalUnitManager;
-#endif
 #endif
 
 #if ENABLE(MODEL_PROCESS)
@@ -899,10 +869,6 @@ private:
     std::optional<bool> m_isLockdownModeEnabled;
     std::optional<bool> m_isEnhancedSecurityEnabled;
 
-#if ENABLE(MEDIA_STREAM) && ENABLE(SANDBOX_EXTENSIONS)
-    HashMap<String, Ref<SandboxExtension>> m_mediaCaptureSandboxExtensions;
-    RefPtr<SandboxExtension> m_machBootstrapExtension;
-#endif
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
     float m_backlightLevel { 0 };
@@ -940,9 +906,6 @@ private:
 #endif
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    const std::unique_ptr<SpeechRecognitionRealtimeMediaSourceManager> m_speechRecognitionRealtimeMediaSourceManager;
-#endif
 #if ENABLE(ROUTING_ARBITRATION)
     const std::unique_ptr<AudioSessionRoutingArbitrator> m_routingArbitrator;
 #endif

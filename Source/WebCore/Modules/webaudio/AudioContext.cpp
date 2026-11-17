@@ -49,13 +49,6 @@
 #include <wtf/MediaTime.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "MediaStream.h"
-#include "MediaStreamAudioDestinationNode.h"
-#include "MediaStreamAudioSource.h"
-#include "MediaStreamAudioSourceNode.h"
-#include "MediaStreamAudioSourceOptions.h"
-#endif
 
 #if ENABLE(VIDEO)
 #include "HTMLMediaElement.h"
@@ -765,23 +758,6 @@ ExceptionOr<Ref<MediaElementAudioSourceNode>> AudioContext::createMediaElementSo
 
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-
-ExceptionOr<Ref<MediaStreamAudioSourceNode>> AudioContext::createMediaStreamSource(MediaStream& mediaStream)
-{
-    ALWAYS_LOG(LOGIDENTIFIER);
-
-    ASSERT(isMainThread());
-
-    return MediaStreamAudioSourceNode::create(*this, { mediaStream });
-}
-
-ExceptionOr<Ref<MediaStreamAudioDestinationNode>> AudioContext::createMediaStreamDestination()
-{
-    return MediaStreamAudioDestinationNode::create(*this);
-}
-
-#endif
 
 bool AudioContext::virtualHasPendingActivity() const
 {

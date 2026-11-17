@@ -33,9 +33,6 @@
 #include <array>
 #include <wtf/CheckedPtr.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include <memory>
-#endif
 
 
 OBJC_CLASS MTLSharedEventListener;
@@ -48,9 +45,6 @@ class GraphicsLayerContentsDisplayDelegate;
 class GraphicsContextGLCVCocoa;
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-class ImageRotationSessionVT;
-#endif
 
 // IOSurface backing store for an image of a texture.
 // When preserveDrawingBuffer == false, this is the drawing buffer backing store.
@@ -87,9 +81,6 @@ public:
     RefPtr<GraphicsLayerContentsDisplayDelegate> layerContentsDisplayDelegate() override;
 #if ENABLE(VIDEO)
     bool copyTextureFromVideoFrame(VideoFrame&, PlatformGLObject texture, uint32_t target, int32_t level, uint32_t internalFormat, uint32_t format, uint32_t type, bool premultiplyAlpha, bool flipY) final;
-#endif
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-    RefPtr<VideoFrame> surfaceBufferToVideoFrame(SurfaceBuffer) final;
 #endif
     RefPtr<PixelBuffer> readCompositedResults() final;
     void setDrawingBufferColorSpace(const DestinationColorSpace&) final;
@@ -129,10 +120,6 @@ protected:
     DestinationColorSpace m_drawingBufferColorSpace;
 #if ENABLE(VIDEO)
     std::unique_ptr<GraphicsContextGLCVCocoa> m_cv;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    std::unique_ptr<ImageRotationSessionVT> m_mediaSampleRotationSession;
-    IntSize m_mediaSampleRotationSessionSize;
 #endif
     RetainPtr<MTLSharedEventListener> m_finishedMetalSharedEventListener;
     RetainPtr<id> m_finishedMetalSharedEvent; // FIXME: Remove all C++ includees and use id<MTLSharedEvent>.

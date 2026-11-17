@@ -35,7 +35,6 @@
 #include "RemoteImageBuffer.h"
 #include "RemoteSharedResourceCache.h"
 #include "SharedPreferencesForWebProcess.h"
-#include "SharedVideoFrame.h"
 #include <WebCore/BitmapImage.h>
 #include <WebCore/FEImage.h>
 #include <WebCore/FilterResults.h>
@@ -49,6 +48,7 @@
 #if PLATFORM(COCOA) && ENABLE(VIDEO)
 #include "IPCSemaphore.h"
 #include "RemoteVideoFrameObjectHeap.h"
+#include "SharedVideoFrame.h"
 #endif
 
 #define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_renderingBackend->streamConnection());

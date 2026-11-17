@@ -217,9 +217,6 @@ Modules/mediacapabilities/WorkerNavigatorMediaCapabilities.cpp
 Modules/mediacontrols/LocalDOMWindowMediaControls.cpp @header:RenderStyleGetters @cost:6
 Modules/mediacontrols/MediaControlsHost.cpp @header:RenderStyleGetters @cost:9
 Modules/mediacontrols/MediaControlsUtils.cpp @header:RenderStyleGetters @cost:6
-Modules/mediarecorder/BlobEvent.cpp
-Modules/mediarecorder/MediaRecorder.cpp @cost:4
-Modules/mediarecorder/MediaRecorderErrorEvent.cpp
 Modules/mediasession/MediaMetadata.cpp
 Modules/mediasession/MediaSession.cpp
 Modules/mediasession/MediaSessionCoordinator.cpp
@@ -238,58 +235,6 @@ Modules/mediasource/SampleMap.cpp
 Modules/mediasource/SourceBuffer.cpp @cost:6
 Modules/mediasource/SourceBufferList.cpp
 Modules/mediasource/VideoPlaybackQuality.cpp
-Modules/mediastream/CanvasCaptureMediaStreamTrack.cpp @cost:4
-Modules/mediastream/ImageCapture.cpp @cost:4
-Modules/mediastream/InputDeviceInfo.cpp
-Modules/mediastream/MediaDeviceInfo.cpp
-Modules/mediastream/MediaDevices.cpp @cost:4
-Modules/mediastream/MediaStream.cpp @cost:3
-Modules/mediastream/MediaStreamTrack.cpp @cost:5
-Modules/mediastream/MediaStreamTrackEvent.cpp
-Modules/mediastream/MediaStreamTrackHandle.cpp
-Modules/mediastream/MediaStreamTrackProcessor.cpp @cost:5
-Modules/mediastream/MediaTrackCapabilities.cpp
-Modules/mediastream/MediaTrackConstraints.cpp
-Modules/mediastream/NavigatorMediaDevices.cpp @cost:4
-Modules/mediastream/OverconstrainedError.cpp
-Modules/mediastream/OverconstrainedErrorEvent.cpp
-Modules/mediastream/PeerConnectionBackend.cpp @cost:5
-Modules/mediastream/RTCCertificate.cpp
-Modules/mediastream/RTCController.cpp @cost:3
-Modules/mediastream/RTCDTMFSender.cpp
-Modules/mediastream/RTCDTMFToneChangeEvent.cpp
-Modules/mediastream/RTCDataChannel.cpp
-Modules/mediastream/RTCDataChannelEvent.cpp
-Modules/mediastream/RTCDataChannelRemoteHandler.cpp
-Modules/mediastream/RTCDataChannelRemoteSource.cpp
-Modules/mediastream/RTCDtlsTransport.cpp @cost:3
-Modules/mediastream/RTCEncodedAudioFrame.cpp
-Modules/mediastream/RTCEncodedFrame.cpp @cost:4
-Modules/mediastream/RTCEncodedVideoFrame.cpp
-Modules/mediastream/RTCError.cpp
-Modules/mediastream/RTCErrorEvent.cpp
-Modules/mediastream/RTCIceCandidate.cpp
-Modules/mediastream/RTCIceCandidateFields.cpp
-Modules/mediastream/RTCIceTransport.cpp @cost:3
-Modules/mediastream/RTCPeerConnection.cpp @cost:5
-Modules/mediastream/RTCPeerConnectionIceErrorEvent.cpp
-Modules/mediastream/RTCPeerConnectionIceEvent.cpp
-Modules/mediastream/RTCRtpReceiver.cpp @cost:3
-Modules/mediastream/RTCRtpSFrameTransformErrorEvent.cpp
-Modules/mediastream/RTCRtpScriptTransform.cpp
-Modules/mediastream/RTCRtpScriptTransformer.cpp @cost:3
-Modules/mediastream/RTCRtpSender.cpp @cost:3
-Modules/mediastream/RTCEncodedStreamProducer.cpp @cost:3
-Modules/mediastream/RTCRtpTransceiver.cpp @cost:3
-Modules/mediastream/RTCRtpTransform.cpp
-Modules/mediastream/RTCSctpTransport.cpp
-Modules/mediastream/RTCSessionDescription.cpp
-Modules/mediastream/RTCTrackEvent.cpp
-Modules/mediastream/RTCTransformEvent.cpp
-Modules/mediastream/STUNMessageParsing.cpp
-Modules/mediastream/UserMediaController.cpp
-Modules/mediastream/UserMediaRequest.cpp
-Modules/mediastream/VideoTrackGenerator.cpp
 Modules/model-element/HTMLModelElement.cpp @header:RenderStyleGetters @cost:10
 Modules/model-element/LazyLoadModelObserver.cpp
 Modules/model-element/ModelPlayer.cpp
@@ -435,9 +380,6 @@ Modules/webaudio/IIRDSPKernel.cpp
 Modules/webaudio/IIRFilterNode.cpp
 Modules/webaudio/IIRProcessor.cpp
 Modules/webaudio/MediaElementAudioSourceNode.cpp
-Modules/webaudio/MediaStreamAudioDestinationNode.cpp
-Modules/webaudio/MediaStreamAudioSource.cpp
-Modules/webaudio/MediaStreamAudioSourceNode.cpp
 Modules/webaudio/OfflineAudioCompletionEvent.cpp
 Modules/webaudio/OfflineAudioContext.cpp
 Modules/webaudio/OfflineAudioDestinationNode.cpp
@@ -2741,37 +2683,8 @@ platform/graphics/transforms/TransformationMatrix.cpp
 platform/graphics/transforms/TranslateTransformOperation.cpp
 platform/mediacapabilities/PlatformMediaCapabilitiesLogging.cpp
 platform/mediacapabilities/PlatformMediaEngineConfigurationFactory.cpp
-platform/mediarecorder/MediaRecorderPrivate.cpp
-platform/mediarecorder/MediaRecorderPrivateMock.cpp
-platform/mediastream/AudioMediaStreamTrackRenderer.cpp
-platform/mediastream/AudioTrackPrivateMediaStream.cpp
-platform/mediastream/CaptureDeviceManager.cpp
-platform/mediastream/MediaConstraintType.cpp
-platform/mediastream/MediaConstraints.cpp
-platform/mediastream/MediaEndpointConfiguration.cpp
-platform/mediastream/MediaStreamPrivate.cpp
-platform/mediastream/MediaStreamTrackDataHolder.cpp
-platform/mediastream/MediaStreamTrackPrivate.cpp
-platform/mediastream/RTCDataChannelHandlerClient.cpp
-platform/mediastream/RTCIceCandidateDescriptor.cpp
-platform/mediastream/RTCSessionDescriptionDescriptor.cpp
-platform/mediastream/RealtimeIncomingAudioSource.cpp
-platform/mediastream/RealtimeIncomingVideoSource.cpp
-platform/mediastream/RealtimeMediaSource.cpp
-platform/mediastream/RealtimeMediaSourceCenter.cpp
-platform/mediastream/RealtimeMediaSourceSettings.cpp
-platform/mediastream/RealtimeMediaSourceSupportedConstraints.cpp
-platform/mediastream/RealtimeOutgoingAudioSource.cpp
-platform/mediastream/RealtimeOutgoingVideoSource.cpp
-platform/mediastream/RealtimeVideoCaptureSource.cpp
-platform/mediastream/WebRTCProvider.cpp
-platform/mock/MockRealtimeAudioSource.cpp
-platform/mock/MockRealtimeMediaSourceCenter.cpp
-platform/mock/MockRealtimeVideoSource.cpp
 platform/mock/PlatformMediaEngineConfigurationFactoryMock.cpp
 platform/mock/PlatformSpeechSynthesizerMock.cpp
-platform/mock/RTCDataChannelHandlerMock.cpp
-platform/mock/RTCNotifiersMock.cpp
 platform/mock/ScrollbarThemeMock.cpp
 platform/mock/ScrollbarsControllerMock.cpp
 platform/mock/mediasource/MockBox.cpp
@@ -3925,7 +3838,6 @@ JSCSSUnitValue.cpp
 JSCSSUnparsedValue.cpp
 JSCSSViewTransitionRule.cpp
 JSCacheQueryOptions.cpp
-JSCanvasCaptureMediaStreamTrack.cpp
 JSCanvasCompositing.cpp
 JSCanvasDirection.cpp
 JSCanvasDrawImage.cpp
@@ -4094,7 +4006,6 @@ JSDocumentOrShadowRoot.cpp
 JSDocumentTimeline.cpp
 JSDocumentTimelineOptions.cpp
 JSDocumentType.cpp
-JSDoubleRange.cpp
 JSDragEvent.cpp
 JSDynamicsCompressorNode.cpp
 JSDynamicsCompressorOptions.cpp
@@ -4170,7 +4081,6 @@ JSFileSystemFileHandle.cpp
 JSFileSystemHandle.cpp
 JSFileSystemSyncAccessHandle.cpp
 JSFileSystemWritableFileStream.cpp
-JSFillLightMode.cpp
 JSFillMode.cpp
 JSFlacEncoderConfig.cpp
 JSFocusEvent.cpp
@@ -4447,14 +4357,12 @@ JSImageBitmap.cpp
 JSImageBitmapOptions.cpp
 JSImageBitmapRenderingContext.cpp
 JSImageBitmapRenderingContextSettings.cpp
-JSImageCapture.cpp
 JSImageData.cpp
 JSImageDataSettings.cpp
 JSImageDataPixelFormat.cpp
 JSImageResource.cpp
 JSImageSmoothingQuality.cpp
 JSImportNodeOptions.cpp
-JSInputDeviceInfo.cpp
 JSInputEvent.cpp
 JSInspectorAuditAccessibilityObject.cpp
 JSInspectorAuditDOMObject.cpp
@@ -4478,7 +4386,6 @@ JSLandmarkType.cpp
 JSLargestContentfulPaint.cpp
 JSLatencyMode.cpp
 JSLocation.cpp
-JSLongRange.cpp
 JSManagedMediaSource.cpp
 JSManagedSourceBuffer.cpp
 JSMapperCallback.cpp
@@ -4494,8 +4401,6 @@ JSMediaControlsHost.cpp
 JSMediaControlsUtils.cpp
 JSMediaDecodingConfiguration.cpp
 JSMediaDecodingType.cpp
-JSMediaDeviceInfo.cpp
-JSMediaDevices.cpp
 JSMediaElementAudioSourceNode.cpp
 JSMediaElementAudioSourceOptions.cpp
 JSMediaEncodingConfiguration.cpp
@@ -4521,8 +4426,6 @@ JSMediaMetadataInit.cpp
 JSMediaPositionState.cpp
 JSMediaQueryList.cpp
 JSMediaQueryListEvent.cpp
-JSMediaRecorder.cpp
-JSMediaRecorderErrorEvent.cpp
 JSMediaSession.cpp
 JSMediaSessionAction.cpp
 JSMediaSessionActionDetails.cpp
@@ -4532,26 +4435,13 @@ JSMediaSessionCoordinator.cpp
 JSMediaSessionCoordinatorState.cpp
 JSMediaSessionPlaybackState.cpp
 JSMediaSessionReadyState.cpp
-JSMediaSettingsRange.cpp
 JSMediaSource.cpp
 JSMediaSourceHandle.cpp
 JSMediaSourceInit.cpp
-JSMediaStream.cpp
-JSMediaStreamAudioDestinationNode.cpp
-JSMediaStreamAudioSourceNode.cpp
-JSMediaStreamAudioSourceOptions.cpp
-JSMediaStreamTrack.cpp
-JSMediaStreamTrackEvent.cpp
-JSMediaStreamTrackHandle.cpp
-JSMediaStreamTrackProcessor.cpp
-JSMediaTrackCapabilities.cpp
-JSMediaTrackConstraints.cpp
-JSMediaTrackSupportedConstraints.cpp
 JSMerchantValidationEvent.cpp
 JSMessageChannel.cpp
 JSMessageEvent.cpp
 JSMessagePort.cpp
-JSMeteringMode.cpp
 JSMobileDocumentRequest.cpp
 JSMouseEvent.cpp
 JSMouseEventInit.cpp
@@ -4617,8 +4507,6 @@ JSOscillatorNode.cpp
 JSOscillatorOptions.cpp
 JSOscillatorType.cpp
 JSOverSampleType.cpp
-JSOverconstrainedError.cpp
-JSOverconstrainedErrorEvent.cpp
 JSPageRevealEvent.cpp
 JSPageSwapEvent.cpp
 JSPageTransitionEvent.cpp
@@ -4674,8 +4562,6 @@ JSPermissionName.cpp
 JSPermissionState.cpp
 JSPermissionStatus.cpp
 JSPermissions.cpp
-JSPhotoCapabilities.cpp
-JSPhotoSettings.cpp
 JSPictureInPictureEvent.cpp
 JSPictureInPictureWindow.cpp
 JSPlaneLayout.cpp
@@ -4716,70 +4602,6 @@ JSPushSubscriptionOptions.cpp
 JSPushSubscriptionOptionsInit.cpp
 JSQueuingStrategy.cpp
 JSQueuingStrategySize.cpp
-JSRTCAnswerOptions.cpp
-JSRTCCertificate.cpp
-JSRTCConfiguration.cpp
-JSRTCDTMFSender.cpp
-JSRTCDTMFToneChangeEvent.cpp
-JSRTCDataChannel.cpp
-JSRTCDataChannelEvent.cpp
-JSRTCDegradationPreference.cpp
-JSRTCDtlsTransport.cpp
-JSRTCDtlsTransportState.cpp
-JSRTCEncodedAudioFrame.cpp
-JSRTCEncodedVideoFrame.cpp
-JSRTCError.cpp
-JSRTCErrorDetailType.cpp
-JSRTCErrorEvent.cpp
-JSRTCIceCandidate.cpp
-JSRTCIceCandidateInit.cpp
-JSRTCIceCandidateType.cpp
-JSRTCIceComponent.cpp
-JSRTCIceConnectionState.cpp
-JSRTCIceGatheringState.cpp
-JSRTCIceProtocol.cpp
-JSRTCIceRole.cpp
-JSRTCIceServer.cpp
-JSRTCIceServerTransportProtocol.cpp
-JSRTCIceTcpCandidateType.cpp
-JSRTCIceTransport.cpp
-JSRTCIceTransportState.cpp
-JSRTCEncodedStreams.cpp
-JSRTCLocalSessionDescriptionInit.cpp
-JSRTCLogsCallback.cpp
-JSRTCOfferAnswerOptions.cpp
-JSRTCOfferOptions.cpp
-JSRTCPeerConnection.cpp
-JSRTCPeerConnectionIceErrorEvent.cpp
-JSRTCPeerConnectionIceEvent.cpp
-JSRTCPeerConnectionState.cpp
-JSRTCPriorityType.cpp
-JSRTCRtcpParameters.cpp
-JSRTCRtpCapabilities.cpp
-JSRTCRtpCodec.cpp
-JSRTCRtpCodecParameters.cpp
-JSRTCRtpContributingSource.cpp
-JSRTCRtpEncodingParameters.cpp
-JSRTCRtpHeaderExtensionParameters.cpp
-JSRTCRtpParameters.cpp
-JSRTCRtpReceiver.cpp
-JSRTCRtpSFrameTransformErrorEvent.cpp
-JSRTCRtpScriptTransform.cpp
-JSRTCRtpScriptTransformer.cpp
-JSRTCRtpSendParameters.cpp
-JSRTCRtpSender.cpp
-JSRTCRtpSynchronizationSource.cpp
-JSRTCRtpTransceiver.cpp
-JSRTCRtpTransceiverDirection.cpp
-JSRTCSctpTransport.cpp
-JSRTCSctpTransportState.cpp
-JSRTCSdpType.cpp
-JSRTCSessionDescription.cpp
-JSRTCSessionDescriptionInit.cpp
-JSRTCSignalingState.cpp
-JSRTCStatsReport.cpp
-JSRTCTrackEvent.cpp
-JSRTCTransformEvent.cpp
 JSRadioNodeList.cpp
 JSRange.cpp
 JSReadableByteStreamController.cpp
@@ -4791,7 +4613,6 @@ JSReadableStreamDefaultReader.cpp
 JSReadableStreamReadResult.cpp
 JSReadableStreamSource.cpp
 JSReadableStreamType.cpp
-JSRedEyeReduction.cpp
 JSReducerCallback.cpp
 JSRegistrationResponseJSON.cpp
 JSRemotePlayback.cpp
@@ -5087,7 +4908,6 @@ JSVideoPixelFormat.cpp
 JSVideoPlaybackQuality.cpp
 JSVideoTrack.cpp
 JSVideoTrackConfiguration.cpp
-JSVideoTrackGenerator.cpp
 JSVideoTrackList.cpp
 JSVideoTransferCharacteristics.cpp
 JSViewTimeline.cpp

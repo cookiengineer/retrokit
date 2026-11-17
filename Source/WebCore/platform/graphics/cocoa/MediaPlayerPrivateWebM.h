@@ -98,9 +98,6 @@ private:
 #if ENABLE(MEDIA_SOURCE)
     void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) final;
 #endif
-#if ENABLE(MEDIA_STREAM)
-    void load(MediaStreamPrivate&) final;
-#endif
     
     // WebMResourceClientParent
     friend class WebMResourceClient;

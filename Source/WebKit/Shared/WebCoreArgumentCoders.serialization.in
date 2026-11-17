@@ -1260,9 +1260,6 @@ header: <WebCore/FileChooser.h>
     Vector<String> acceptMIMETypes;
     Vector<String> acceptFileExtensions;
     Vector<String> selectedFiles;
-#if ENABLE(MEDIA_CAPTURE)
-    WebCore::MediaCaptureType mediaCaptureType;
-#endif
 };
 
 header: <WebCore/TextChecking.h>
@@ -1378,13 +1375,6 @@ struct WebCore::PlatformMediaCapabilitiesInfo {
     bool smooth;
     bool powerEfficient;
 }
-header: <WebCore/MediaStreamRequest.h>
-[Nested, CustomHeader] enum class WebCore::MediaStreamRequest::Type : uint8_t {
-    UserMedia,
-    DisplayMedia,
-    DisplayMediaWithAudio
-}
-
 struct WebCore::PlatformMediaCapabilitiesDecodingInfo : WebCore::PlatformMediaCapabilitiesInfo {
     WebCore::PlatformMediaDecodingConfiguration configuration;
 }
@@ -3087,11 +3077,6 @@ struct WebCore::AppHighlight {
     WebCore::HighlightRequestOriginatedInApp requestOriginatedInApp;
 };
 #endif // ENABLE(APP_HIGHLIGHTS)
-
-struct WebCore::MediaDeviceHashSalts {
-    String persistentDeviceSalt;
-    String ephemeralDeviceSalt;
-};
 
 enum class WebCore::SpeechRecognitionUpdateType : uint8_t {
     Start,
@@ -5820,9 +5805,6 @@ headers: <JavaScriptCore/WasmModule.h> <WebCore/ImageBitmap.h> <WebCore/MessageP
 struct WebCore::SerializedScriptValueInternals {
     Vector<uint8_t> data;
     std::unique_ptr<Vector<JSC::ArrayBufferContents>> arrayBufferContentsArray;
-#if ENABLE(WEB_RTC)
-    Vector<std::unique_ptr<WebCore::DetachedRTCDataChannel>> detachedRTCDataChannels;
-#endif
 #if ENABLE(WEB_CODECS)
     Vector<Ref<WebCore::WebCodecsEncodedVideoChunkStorage>> serializedVideoChunks;
     Vector<Ref<WebCore::WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
@@ -5834,16 +5816,8 @@ struct WebCore::SerializedScriptValueInternals {
     [NotSerialized] Vector<WebCore::WebCodecsVideoFrameData> serializedVideoFrames;
     [NotSerialized] Vector<WebCore::WebCodecsAudioInternalData> serializedAudioData;
 #endif
-#if ENABLE(WEB_RTC)
-    [NotSerialized] Vector<Ref<WebCore::RTCRtpTransformableFrame>> serializedRTCEncodedAudioFrames;
-    [NotSerialized] Vector<Ref<WebCore::RTCRtpTransformableFrame>> serializedRTCEncodedVideoFrames;
-#endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     [NotSerialized] Vector<RefPtr<WebCore::DetachedMediaSourceHandle>> detachedMediaSourceHandles;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    [NotSerialized] Vector<std::unique_ptr<WebCore::MediaStreamTrackDataHolder>> detachedMediaStreamTracks;
-    [NotSerialized] Vector<std::unique_ptr<WebCore::MediaStreamTrackHandle::DataHolder>> detachedMediaStreamTrackHandles;
 #endif
     [NotSerialized] std::unique_ptr<Vector<JSC::ArrayBufferContents>> sharedBufferContentsArray;
     [NotSerialized] Vector<std::optional<WebCore::DetachedImageBitmap>> detachedImageBitmaps;

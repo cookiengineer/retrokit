@@ -826,12 +826,6 @@ void PageClientImpl::showPlaybackTargetPicker(bool hasVideo, const IntRect& elem
 bool PageClientImpl::handleRunOpenPanel(const WebPageProxy& page, const WebFrameProxy&, const FrameInfoData& frameInfo, API::OpenPanelParameters& parameters, WebOpenPanelResultListenerProxy& listener)
 {
     RELEASE_LOG_INFO(WebRTC, "PageClientImpl::handleRunOpenPanel");
-#if ENABLE(MEDIA_CAPTURE)
-    if (parameters.mediaCaptureType() != WebCore::MediaCaptureType::MediaCaptureTypeNone) {
-        if (auto pid = page.configuration().processPool().configuration().presentingApplicationPID())
-            protect(WebCore::MediaSessionHelper::sharedHelper())->providePresentingApplicationPID(pid);
-    }
-#endif
 
     [contentView() _showRunOpenPanel:&parameters frameInfo:frameInfo resultListener:&listener];
     return true;

@@ -30,7 +30,6 @@
 #  gstreamer-transcoder: GSTREAMER_TRANSCODER_INCLUDE_DIRS and GSTREAMER_TRANSCODER_LIBRARIES
 #  gstreamer-rtp:        GSTREAMER_RTP_INCLUDE_DIRS and GSTREAMER_RTP_LIBRARIES
 #  gstreamer-sdp:        GSTREAMER_SDP_INCLUDE_DIRS and GSTREAMER_SDP_LIBRARIES
-#  gstreamer-webrtc:     GSTREAMER_WEBRTC_INCLUDE_DIRS and GSTREAMER_WEBRTC_LIBRARIES
 #
 # Copyright (C) 2012 Raphael Kubo da Costa <rakuco@webkit.org>
 #
@@ -124,7 +123,6 @@ FIND_GSTREAMER_COMPONENT(GSTREAMER_CODECPARSERS gstreamer-codecparsers-1.0 gstco
 FIND_GSTREAMER_COMPONENT(GSTREAMER_TRANSCODER gstreamer-transcoder-1.0 gsttranscoder-1.0)
 FIND_GSTREAMER_COMPONENT(GSTREAMER_RTP gstreamer-rtp-1.0 gstrtp-1.0)
 FIND_GSTREAMER_COMPONENT(GSTREAMER_SDP gstreamer-sdp-1.0 gstsdp-1.0)
-FIND_GSTREAMER_COMPONENT(GSTREAMER_WEBRTC gstreamer-webrtc-1.0 gstwebrtc-1.0)
 
 # ------------------------------------------------
 # 3. Process the COMPONENTS passed to FIND_PACKAGE

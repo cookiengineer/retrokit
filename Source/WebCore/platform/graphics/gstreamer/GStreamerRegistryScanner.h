@@ -24,7 +24,6 @@
 #include "GStreamerCommon.h"
 #include "PlatformMediaConfiguration.h"
 #include "MediaPlayerEnums.h"
-#include "RTCRtpCapabilities.h"
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>

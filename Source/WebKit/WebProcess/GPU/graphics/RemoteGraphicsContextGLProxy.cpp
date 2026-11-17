@@ -35,7 +35,6 @@
 #include "RemoteGraphicsContextGLProxyMessages.h"
 #include "RemoteNativeImageProxy.h"
 #include "RemoteRenderingBackendProxy.h"
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "WebPage.h"
 #include "WebProcess.h"
 #include <WebCore/BitmapImage.h>
@@ -46,8 +45,8 @@
 #include <wtf/text/ParsingUtilities.h>
 
 #if ENABLE(VIDEO)
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "RemoteVideoFrameProxy.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/MediaPlayer.h>
 #endif
 
@@ -203,23 +202,6 @@ RefPtr<NativeImage> RemoteGraphicsContextGLProxy::copyNativeImageYFlipped(Surfac
     return nativeImage;
 }
 
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-RefPtr<WebCore::VideoFrame> RemoteGraphicsContextGLProxy::surfaceBufferToVideoFrame(SurfaceBuffer buffer)
-{
-    ASSERT(isMainRunLoop());
-    if (isContextLost())
-        return nullptr;
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::SurfaceBufferToVideoFrame(buffer));
-    if (!sendResult.succeeded()) {
-        markContextLost();
-        return nullptr;
-    }
-    auto [result] = sendResult.takeReply();
-    if (!result)
-        return nullptr;
-    return RemoteVideoFrameProxy::create(WebProcess::singleton().ensureGPUProcessConnection().connection(), protect(protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy()), WTF::move(*result));
-}
-#endif
 
 #if ENABLE(VIDEO)
 bool RemoteGraphicsContextGLProxy::copyTextureFromVideoFrame(WebCore::VideoFrame& videoFrame, PlatformGLObject texture, GCGLenum target, GCGLint level, GCGLenum internalFormat, GCGLenum format, GCGLenum type, bool premultiplyAlpha, bool flipY)

@@ -21,20 +21,3 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE(MEDIA_STREAM)
-
-[
-    DispatchedFrom=WebContent,
-    DispatchedTo=UI,
-    EnabledBy=SpeechRecognitionEnabled
-]
-messages -> SpeechRecognitionRemoteRealtimeMediaSourceManager {
-    RemoteAudioSamplesAvailable(WebCore::RealtimeMediaSourceIdentifier identifier, MediaTime time, uint64_t numberOfFrames)
-    RemoteCaptureFailed(WebCore::RealtimeMediaSourceIdentifier identifier)
-    RemoteSourceStopped(WebCore::RealtimeMediaSourceIdentifier identifier)
-#if PLATFORM(COCOA)
-    SetStorage(WebCore::RealtimeMediaSourceIdentifier identifier, struct WebKit::ConsumerSharedCARingBufferHandle storageHandle, WebCore::CAAudioStreamDescription description)
-#endif
-}
-
-#endif

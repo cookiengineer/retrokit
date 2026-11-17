@@ -439,9 +439,6 @@ public:
 #if ENABLE(MEDIA_SOURCE)
     bool load(const URL&, const LoadOptions&, MediaSourcePrivateClient&);
 #endif
-#if ENABLE(MEDIA_STREAM)
-    bool load(MediaStreamPrivate&);
-#endif
     void cancelLoad();
 
     bool pageIsVisible() const { return m_pageIsVisible; }
@@ -883,9 +880,6 @@ private:
 
 #if ENABLE(MEDIA_SOURCE)
     ThreadSafeWeakPtr<MediaSourcePrivateClient> m_mediaSource;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    RefPtr<MediaStreamPrivate> m_mediaStream;
 #endif
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(ENCRYPTED_MEDIA)
     bool m_shouldContinueAfterKeyNeeded { false };

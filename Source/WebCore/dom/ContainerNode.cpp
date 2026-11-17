@@ -1297,10 +1297,6 @@ ExceptionOr<Ref<NodeList>> ContainerNode::querySelectorAll(const String& selecto
     if (isCacheable)
         document->addResultForSelectorAll(*this, selectors, nodeList, classNameToMatch);
 
-#if ENABLE(MEDIA_STREAM)
-    if (document->quirks().shouldEnableFacebookFlagQuirk() && nodeList->length() && selectors == "script[data-sjs]:not([data-processed])"_s)
-        nodeList = document->quirks().applyFacebookFlagQuirk(document, nodeList);
-#endif
 
     return nodeList;
 }

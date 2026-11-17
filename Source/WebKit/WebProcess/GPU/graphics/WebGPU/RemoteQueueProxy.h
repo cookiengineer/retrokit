@@ -28,8 +28,8 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "RemoteAdapterProxy.h"
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "WebGPUIdentifier.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <WebCore/WebGPUQueue.h>
 #include <wtf/TZoneMalloc.h>
 

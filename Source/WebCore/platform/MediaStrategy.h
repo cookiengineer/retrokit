@@ -26,9 +26,6 @@
 #pragma once
 
 #include <wtf/Platform.h>
-#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
-#include <WebCore/MediaRecorderPrivateWriter.h>
-#endif
 #include <WebCore/HTMLMediaElementIdentifier.h>
 #include <WebCore/MediaPlayerEnums.h>
 #include <WebCore/MediaPlayerIdentifier.h>

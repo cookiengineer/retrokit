@@ -16,9 +16,6 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKITLEGACY_DIR}/mac/WebCoreSupport"
     "${WebKitLegacy_FRAMEWORK_HEADERS_DIR}"
     "${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKitLegacy"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/abseil-cpp"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/webrtc"
 )
 
 list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES

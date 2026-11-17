@@ -1654,9 +1654,6 @@ public:
 
     using SurfaceBuffer = GraphicsContextGLSurfaceBuffer;
     virtual RefPtr<NativeImage> copyNativeImageYFlipped(SurfaceBuffer) = 0;
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-    virtual RefPtr<VideoFrame> surfaceBufferToVideoFrame(SurfaceBuffer) = 0;
-#endif
 
     using SimulatedEventForTesting = GraphicsContextGLSimulatedEventForTesting;
     virtual void simulateEventForTesting(SimulatedEventForTesting) = 0;

@@ -41,7 +41,6 @@ NetworkProcess/cocoa/WebSocketTaskCocoa.mm @nonARC
 
 NetworkProcess/mac/NetworkConnectionToWebProcessMac.mm @nonARC
 
-NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm @nonARC
 
 Platform/IPC/cocoa/SharedFileHandleCocoa.cpp
 

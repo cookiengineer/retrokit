@@ -44,7 +44,6 @@
 #import "RemoteSnapshotRecorderProxy.h"
 #import "SharedBufferReference.h"
 #import "TextAnimationController.h"
-#import "UserMediaCaptureManager.h"
 #import "ViewGestureGeometryCollector.h"
 #import "WKAccessibilityWebPageObjectBase.h"
 #import "WebEventConversion.h"
@@ -159,7 +158,6 @@
 #import <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(GPU_PROCESS) && PLATFORM(COCOA)
-#include "LibWebRTCCodecs.h"
 #endif
 
 #if PLATFORM(IOS) || PLATFORM(VISION)
@@ -228,15 +226,6 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
 
     platformInitializeAccessibility(shouldInitializeAccessibility ? ShouldInitializeNSAccessibility::Yes : ShouldInitializeNSAccessibility::No);
 
-#if ENABLE(MEDIA_STREAM)
-    protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(parameters.shouldCaptureAudioInUIProcess, parameters.shouldCaptureAudioInGPUProcess, parameters.shouldCaptureVideoInUIProcess, parameters.shouldCaptureVideoInGPUProcess, parameters.shouldCaptureDisplayInUIProcess, parameters.shouldCaptureDisplayInGPUProcess,
-#if ENABLE(WEB_RTC)
-        m_page->settings().webRTCRemoteVideoFrameEnabled()
-#else
-        false
-#endif // ENABLE(WEB_RTC)
-    );
-#endif // ENABLE(MEDIA_STREAM)
 #if USE(LIBWEBRTC)
     LibWebRTCCodecs::setCallbacks(m_page->settings().webRTCPlatformCodecsInGPUProcessEnabled(), m_page->settings().webRTCRemoteVideoFrameEnabled());
     LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());

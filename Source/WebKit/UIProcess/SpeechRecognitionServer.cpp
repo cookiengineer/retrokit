@@ -27,7 +27,6 @@
 #include "SpeechRecognitionServer.h"
 
 #include "MessageSenderInlines.h"
-#include "UserMediaProcessManager.h"
 #include "WebProcessProxy.h"
 #include "WebSpeechRecognitionConnectionMessages.h"
 #include <WebCore/SpeechRecognitionRequestInfo.h>
@@ -41,30 +40,18 @@ namespace WebKit {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SpeechRecognitionServer);
 
 Ref<SpeechRecognitionServer> SpeechRecognitionServer::create(WebProcessProxy& process, SpeechRecognitionServerIdentifier identifier, SpeechRecognitionPermissionChecker&& permissionChecker, SpeechRecognitionCheckIfMockSpeechRecognitionEnabled&& checkIfEnabled
-#if ENABLE(MEDIA_STREAM)
-    , RealtimeMediaSourceCreateFunction&& function
-#endif
     )
 {
     return adoptRef(*new SpeechRecognitionServer(process, identifier, WTF::move(permissionChecker), WTF::move(checkIfEnabled)
-#if ENABLE(MEDIA_STREAM)
-        , WTF::move(function)
-#endif
     ));
 }
 
 SpeechRecognitionServer::SpeechRecognitionServer(WebProcessProxy& process, SpeechRecognitionServerIdentifier identifier, SpeechRecognitionPermissionChecker&& permissionChecker, SpeechRecognitionCheckIfMockSpeechRecognitionEnabled&& checkIfEnabled
-#if ENABLE(MEDIA_STREAM)
-    , RealtimeMediaSourceCreateFunction&& function
-#endif
     )
     : m_process(process)
     , m_identifier(identifier)
     , m_permissionChecker(WTF::move(permissionChecker))
     , m_checkIfMockSpeechRecognitionEnabled(WTF::move(checkIfEnabled))
-#if ENABLE(MEDIA_STREAM)
-    , m_realtimeMediaSourceCreateFunction(WTF::move(function))
-#endif
 {
 }
 

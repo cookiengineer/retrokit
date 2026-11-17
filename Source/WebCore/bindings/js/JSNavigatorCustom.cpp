@@ -45,22 +45,5 @@ void JSNavigator::visitAdditionalChildrenInGCThread(Visitor& visitor)
 
 DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSNavigator);
 
-#if ENABLE(MEDIA_STREAM)
-JSC::JSValue JSNavigator::getUserMedia(JSC::JSGlobalObject& lexicalGlobalObject, JSC::CallFrame& callFrame)
-{
-    auto* function = realm()->builtinInternalFunctions().jsDOMBindingInternals().m_getUserMediaShimFunction.get();
-    ASSERT(function);
-
-    auto callData = JSC::getCallData(function);
-    ASSERT(callData.type != JSC::CallData::Type::None);
-    JSC::MarkedArgumentBuffer arguments;
-    arguments.ensureCapacity(callFrame.argumentCount());
-    for (size_t cptr = 0; cptr < callFrame.argumentCount(); ++cptr)
-        arguments.append(callFrame.uncheckedArgument(cptr));
-    ASSERT(!arguments.hasOverflowed());
-    JSC::call(&lexicalGlobalObject, function, callData, this, arguments);
-    return JSC::jsUndefined();
-}
-#endif
 
 }

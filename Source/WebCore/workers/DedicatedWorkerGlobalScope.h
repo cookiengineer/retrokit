@@ -85,9 +85,6 @@ public:
     void cancelAnimationFrame(CallbackId);
 #endif
 
-#if ENABLE(WEB_RTC)
-    RefPtr<RTCRtpScriptTransformer> createRTCRtpScriptTransformer(MessageWithMessagePorts&&);
-#endif
 
     FetchOptions::Destination destination() const final { return FetchOptions::Destination::Worker; }
 

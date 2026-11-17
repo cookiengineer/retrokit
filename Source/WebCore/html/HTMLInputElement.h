@@ -312,9 +312,6 @@ public:
 
     String defaultToolTip() const;
 
-#if ENABLE(MEDIA_CAPTURE)
-    MediaCaptureType mediaCaptureType() const;
-#endif
 
     // FIXME: According to HTML4, the length attribute's value can be arbitrarily
     // large. However, due to https://bugs.webkit.org/show_bug.cgi?id=14536 things

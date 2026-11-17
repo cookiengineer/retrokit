@@ -529,9 +529,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 
     _mediaCaptureType = WebCore::MediaCaptureType::MediaCaptureTypeNone;
-#if ENABLE(MEDIA_CAPTURE)
-    _mediaCaptureType = parameters->mediaCaptureType();
-#endif
 
     if (![self platformSupportsPickerViewController]) {
         [self _cancel];

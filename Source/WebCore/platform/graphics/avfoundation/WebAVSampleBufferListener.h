@@ -26,6 +26,7 @@
 #pragma once
 
 #include <CoreMedia/CMTime.h>
+#include "SampleBufferDisplayLayer.h"
 #include <wtf/AbstractThreadSafeRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>

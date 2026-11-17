@@ -26,6 +26,7 @@
 #pragma once
 
 #include <wtf/ObjectIdentifier.h>
+#include "VideoEncoderIdentifier.h"
 
 namespace WebKit {
 

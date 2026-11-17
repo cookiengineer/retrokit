@@ -79,9 +79,6 @@ private:
     // MediaPlayerPrivate Overrides
     void load(const String& url) override;
     void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) override;
-#if ENABLE(MEDIA_STREAM)
-    void load(MediaStreamPrivate&) override { }
-#endif
     void cancelLoad() override;
     void play() override;
     void pause() override;

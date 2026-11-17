@@ -142,11 +142,6 @@ public:
 
     void updateNowPlayingInfo(NowPlayingInfo&);
 
-#if ENABLE(MEDIA_STREAM)
-    void setMicrophoneActive(bool isActive, DOMPromiseDeferred<void>&& promise) { updateCaptureState(isActive, WTF::move(promise), MediaProducerMediaCaptureKind::Microphone); }
-    void setCameraActive(bool isActive, DOMPromiseDeferred<void>&& promise) { updateCaptureState(isActive, WTF::move(promise), MediaProducerMediaCaptureKind::Camera); }
-    void setScreenshareActive(bool isActive, DOMPromiseDeferred<void>&& promise) { updateCaptureState(isActive, WTF::move(promise), MediaProducerMediaCaptureKind::Display); }
-#endif
 
     WEBCORE_EXPORT bool hasActionHandler(const MediaSessionAction) const;
 
@@ -176,9 +171,6 @@ private:
     void notifyActionHandlerObservers();
     void notifyReadyStateObservers();
 
-#if ENABLE(MEDIA_STREAM)
-    void updateCaptureState(bool, DOMPromiseDeferred<void>&&, MediaProducerMediaCaptureKind);
-#endif
 
     // ActiveDOMObject.
     void suspend(ReasonForSuspension) final;

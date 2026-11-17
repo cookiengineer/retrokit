@@ -40,7 +40,6 @@
 #include "JSRTCRtpScriptTransformer.h"
 #include "LocalDOMWindow.h"
 #include "MessageEvent.h"
-#include "RTCTransformEvent.h"
 #include "RequestAnimationFrameCallback.h"
 #include "SecurityOrigin.h"
 #include "StructuredSerializeOptions.h"
@@ -134,17 +133,6 @@ void DedicatedWorkerGlobalScope::cancelAnimationFrame(CallbackId callbackId)
 }
 #endif
 
-#if ENABLE(WEB_RTC)
-RefPtr<RTCRtpScriptTransformer> DedicatedWorkerGlobalScope::createRTCRtpScriptTransformer(MessageWithMessagePorts&& options)
-{
-    auto transformerOrException = RTCRtpScriptTransformer::create(*this, WTF::move(options));
-    if (transformerOrException.hasException())
-        return nullptr;
-    auto transformer = transformerOrException.releaseReturnValue();
-    dispatchEvent(RTCTransformEvent::create(eventNames().rtctransformEvent, transformer.copyRef(), Event::IsTrusted::Yes));
-    return transformer;
-}
-#endif
 
 #if ENABLE(NOTIFICATIONS)
 NotificationClient* DedicatedWorkerGlobalScope::notificationClient()

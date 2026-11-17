@@ -458,14 +458,6 @@ Expected<void, MediaPlaybackDenialExplanation> MediaElementSession::playbackStat
     if (m_restrictions & OverrideUserGestureRequirementForMainContent && updateIsMainContent())
         return { };
 
-#if ENABLE(MEDIA_STREAM)
-    if (element->hasMediaStreamSrcObject()) {
-        if (document->isCapturing())
-            return { };
-        if (document->mediaState() & MediaProducerMediaState::IsPlayingAudio)
-            return { };
-    }
-#endif
 
     // FIXME: Why are we checking top-level document only for PerDocumentAutoplayBehavior?
     if (!mainFrameDocument) {
@@ -1077,10 +1069,6 @@ bool MediaElementSession::requiresFullscreenForVideoPlayback() const
     if (!element->document().settings().inlineMediaPlaybackRequiresPlaysInlineAttribute())
         return false;
 
-#if ENABLE(MEDIA_STREAM)
-    if (element->hasMediaStreamSrcObject())
-        return false;
-#endif
 
     if (protect(element->document())->quirks().shouldIgnorePlaysInlineRequirementQuirk())
         return false;
@@ -1346,48 +1334,6 @@ bool MediaElementSession::allowsPlaybackControlsForAutoplayingAudio() const
 }
 
 #if ENABLE(MEDIA_SESSION)
-#if ENABLE(MEDIA_STREAM)
-static bool NODELETE isDocumentPlayingSeveralMediaStreamsAndCapturing(Document& document)
-{
-    // We restrict to capturing document for now, until we have a good way to state to the UIProcess application that audio rendering is muted from here.
-    auto* page = document.page();
-    return document.activeMediaElementsWithMediaStreamCount() > 1 && page && MediaProducer::isCapturing(page->mediaState());
-}
-
-static bool processRemoteControlCommandIfPlayingMediaStreams(Document& document, PlatformMediaSession::RemoteControlCommandType commandType)
-{
-    RefPtr page = document.page();
-    if (!page)
-        return false;
-
-    if (!isDocumentPlayingSeveralMediaStreamsAndCapturing(document))
-        return false;
-
-    WebCore::MediaProducerMutedStateFlags mutedState;
-    mutedState.add(WebCore::MediaProducerMutedState::AudioIsMuted);
-    mutedState.add(WebCore::MediaProducer::AudioAndVideoCaptureIsMuted);
-    mutedState.add(WebCore::MediaProducerMutedState::ScreenCaptureIsMuted);
-
-    switch (commandType) {
-    case PlatformMediaSession::RemoteControlCommandType::PlayCommand:
-        page->setMuted({ });
-        return true;
-    case PlatformMediaSession::RemoteControlCommandType::StopCommand:
-    case PlatformMediaSession::RemoteControlCommandType::PauseCommand:
-        page->setMuted(mutedState);
-        return true;
-    case PlatformMediaSession::RemoteControlCommandType::TogglePlayPauseCommand:
-        if (page->mutedState().containsAny(mutedState))
-            page->setMuted({ });
-        else
-            page->setMuted(mutedState);
-        return true;
-    default:
-        break;
-    }
-    return false;
-}
-#endif
 
 void MediaElementSession::didReceiveRemoteControlCommand(RemoteControlCommandType commandType, const RemoteCommandArgument& argument)
 {
@@ -1397,10 +1343,6 @@ void MediaElementSession::didReceiveRemoteControlCommand(RemoteControlCommandTyp
 
     RefPtr session = mediaSession();
     if (!session || !session->hasActiveActionHandlers()) {
-#if ENABLE(MEDIA_STREAM)
-        if (processRemoteControlCommandIfPlayingMediaStreams(protect(element->document()), commandType))
-            return;
-#endif
         PlatformMediaSession::didReceiveRemoteControlCommand(commandType, argument);
         return;
     }
@@ -1473,23 +1415,6 @@ bool MediaElementSession::hasNowPlayingInfo() const
     if (!canShowControlsManager(MediaElementSession::PlaybackControlsPurpose::NowPlaying))
         return false;
 
-#if ENABLE(MEDIA_STREAM)
-    if (RefPtr session = mediaSession()) {
-        auto isActiveMediaElementPreventingNowPlayingInfo = [&] {
-            RefPtr activeMediaElement = session->activeMediaElement();
-            if (!activeMediaElement || activeMediaElement.get() == element.get())
-                return false;
-            return activeMediaElement->hasMediaStreamSrcObject() && (!session->hasActiveActionHandlers() && !session->metadata());
-        };
-        if (element->hasMediaStreamSrcObject()) {
-            if (!session->hasActiveActionHandlers() && !session->metadata())
-                return false;
-        } else if (isActiveMediaElementPreventingNowPlayingInfo()) {
-            ALWAYS_LOG(LOGIDENTIFIER, "MediaElementSession::hasNowPlayingInfo returning false due to active media element");
-            return false;
-        }
-    }
-#endif // ENABLE(MEDIA_STREAM)
 #endif // ENABLE(MEDIA_SESSION)
 
     return true;

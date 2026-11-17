@@ -608,19 +608,6 @@
     return [self _getURLAttribute:@"src"];
 }
 
-#if ENABLE(MEDIA_CAPTURE)
-- (BOOL)capture
-{
-    WebCore::JSMainThreadNullState state;
-    return IMPL->hasAttributeWithoutSynchronization(WebCore::HTMLNames::captureAttr);
-}
-
-- (void)setCapture:(BOOL)newCapture
-{
-    WebCore::JSMainThreadNullState state;
-    IMPL->setBooleanAttribute(WebCore::HTMLNames::captureAttr, newCapture);
-}
-#endif
 
 - (void)stepUp:(int)n
 {

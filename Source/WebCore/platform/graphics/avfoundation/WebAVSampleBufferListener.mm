@@ -27,6 +27,7 @@
 #import "WebAVSampleBufferListener.h"
 
 #import "WebSampleBufferVideoRendering.h"
+#include "SampleBufferDisplayLayer.h"
 #import <Foundation/Foundation.h>
 #import <Foundation/NSObject.h>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>

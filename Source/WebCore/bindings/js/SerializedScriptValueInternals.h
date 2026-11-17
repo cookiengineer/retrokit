@@ -34,10 +34,6 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include <WebCore/MediaStreamTrackDataHolder.h>
-#include <WebCore/MediaStreamTrackHandle.h>
-#endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
 #include <WebCore/MediaSourceHandle.h>
 #endif
@@ -49,10 +45,6 @@
 #include <WebCore/WebCodecsVideoFrame.h>
 #endif
 
-#if ENABLE(WEB_RTC)
-#include <WebCore/DetachedRTCDataChannel.h>
-#include <WebCore/RTCRtpTransformableFrame.h>
-#endif
 
 #if ENABLE(WEBASSEMBLY)
 namespace JSC { namespace Wasm { class Module; } }
@@ -79,9 +71,6 @@ struct SerializedScriptValueInternals {
     WTF_MAKE_STRUCT_TZONE_ALLOCATED_EXPORT(SerializedScriptValueInternals, WEBCORE_EXPORT);
     Vector<unsigned char> data { };
     std::unique_ptr<ArrayBufferContentsArray> arrayBufferContentsArray { nullptr };
-#if ENABLE(WEB_RTC)
-    Vector<std::unique_ptr<DetachedRTCDataChannel>> detachedRTCDataChannels { };
-#endif
 #if ENABLE(WEB_CODECS)
     Vector<Ref<WebCodecsEncodedVideoChunkStorage>> serializedVideoChunks { };
     Vector<Ref<WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks { };
@@ -93,16 +82,8 @@ struct SerializedScriptValueInternals {
     Vector<WebCodecsVideoFrameData> serializedVideoFrames { };
     Vector<WebCodecsAudioInternalData> serializedAudioData { };
 #endif
-#if ENABLE(WEB_RTC)
-    Vector<Ref<RTCRtpTransformableFrame>> serializedRTCEncodedAudioFrames { };
-    Vector<Ref<RTCRtpTransformableFrame>> serializedRTCEncodedVideoFrames { };
-#endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     Vector<RefPtr<DetachedMediaSourceHandle>> detachedMediaSourceHandles { };
-#endif
-#if ENABLE(MEDIA_STREAM)
-    Vector<std::unique_ptr<MediaStreamTrackDataHolder>> detachedMediaStreamTracks { };
-    Vector<std::unique_ptr<MediaStreamTrackHandleDataHolder>> detachedMediaStreamTrackHandles { };
 #endif
     std::unique_ptr<ArrayBufferContentsArray> sharedBufferContentsArray { nullptr };
     Vector<std::optional<DetachedImageBitmap>> detachedImageBitmaps { };

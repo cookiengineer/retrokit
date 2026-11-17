@@ -53,7 +53,6 @@
 #include "SocketProvider.h"
 #include "StorageConnection.h"
 #include "UserGestureIndicator.h"
-#include "WebRTCProvider.h"
 #include "Worker.h"
 #include "WorkerInitializationData.h"
 #include "WorkerInspectorProxy.h"
@@ -329,18 +328,6 @@ RefPtr<CacheStorageConnection> WorkerMessagingProxy::createCacheStorageConnectio
     return document->page()->cacheStorageProvider().createCacheStorageConnection();
 }
 
-RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerMessagingProxy::createRTCDataChannelRemoteHandlerConnection()
-{
-    ASSERT(isMainThread());
-    RefPtr document = dynamicDowncast<Document>(*m_scriptExecutionContext);
-    if (!document)
-        document = Document::allDocumentsMap().get(m_loaderContextIdentifier);
-
-    ASSERT(document);
-    if (!document || !document->page())
-        return nullptr;
-    return document->page()->webRTCProvider().createRTCDataChannelRemoteHandlerConnection();
-}
 
 RefPtr<IDBClient::IDBConnectionProxy> WorkerMessagingProxy::createIDBConnectionProxy()
 {

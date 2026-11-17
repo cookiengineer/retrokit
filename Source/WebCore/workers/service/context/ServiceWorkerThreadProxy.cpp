@@ -50,7 +50,6 @@
 #include "Settings.h"
 #include "SocketProvider.h"
 #include "StorageConnection.h"
-#include "WebRTCProvider.h"
 #include "WorkerGlobalScope.h"
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/MainThread.h>
@@ -169,11 +168,6 @@ RefPtr<IDBClient::IDBConnectionProxy> ServiceWorkerThreadProxy::createIDBConnect
     return nullptr;
 }
 
-RefPtr<RTCDataChannelRemoteHandlerConnection> ServiceWorkerThreadProxy::createRTCDataChannelRemoteHandlerConnection()
-{
-    ASSERT(isMainThread());
-    return m_page->webRTCProvider().createRTCDataChannelRemoteHandlerConnection();
-}
 
 RefPtr<FetchLoader> ServiceWorkerThreadProxy::createBlobLoader(FetchLoaderClient& client, const URL& blobURL)
 {

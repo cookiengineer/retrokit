@@ -58,7 +58,6 @@
 #include "PingLoad.h"
 #include "PreconnectRequest.h"
 #include "PreconnectTask.h"
-#include "RTCDataChannelRemoteManagerProxy.h"
 #include "RemoteWorkerType.h"
 #include "ServiceWorkerFetchTaskMessages.h"
 #include "WebErrors.h"
@@ -144,9 +143,6 @@ NetworkConnectionToWebProcess::NetworkConnectionToWebProcess(NetworkProcess& net
     , m_networkProcess(networkProcess)
     , m_sessionID(sessionID)
     , m_networkResourceLoaders([this](bool hasUpload) { hasUploadStateChanged(hasUpload); })
-#if ENABLE(WEB_RTC)
-    , m_mdnsRegister(*this)
-#endif
     , m_webProcessIdentifier(webProcessIdentifier)
     , m_schemeRegistry(NetworkSchemeRegistry::create())
     , m_originAccessPatterns(makeUniqueRef<NetworkOriginAccessPatterns>())
@@ -219,9 +215,6 @@ NetworkConnectionToWebProcess::~NetworkConnectionToWebProcess()
 #if USE(LIBWEBRTC)
     if (RefPtr rtcProvider = m_rtcProvider)
         rtcProvider->close();
-#endif
-#if ENABLE(WEB_RTC)
-    unregisterToRTCDataChannelProxy();
 #endif
 
     unregisterSWConnection();
@@ -318,12 +311,6 @@ bool NetworkConnectionToWebProcess::dispatchMessage(IPC::Connection& connection,
         return true;
     }
 #endif
-#if ENABLE(WEB_RTC)
-    if (decoder.messageReceiverName() == Messages::NetworkMDNSRegister::messageReceiverName()) {
-        protect(mdnsRegister())->didReceiveMessage(connection, decoder);
-        return true;
-    }
-#endif
 
     if (decoder.messageReceiverName() == Messages::NetworkTransportSession::messageReceiverName()) {
         MESSAGE_CHECK_WITH_RETURN_VALUE(WebTransportSessionIdentifier::isValidIdentifier(decoder.destinationID()), false);
@@ -403,34 +390,6 @@ void NetworkConnectionToWebProcess::createRTCProvider(CompletionHandler<void()>&
     callback();
 }
 
-#if ENABLE(WEB_RTC)
-void NetworkConnectionToWebProcess::connectToRTCDataChannelRemoteSource(WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier, CompletionHandler<void(std::optional<bool>)>&& callback)
-{
-    MESSAGE_CHECK_COMPLETION(localIdentifier.processIdentifier() == m_webProcessIdentifier, callback(false));
-    RefPtr connectionToWebProcess = m_networkProcess->webProcessConnection(remoteIdentifier.processIdentifier());
-    if (!connectionToWebProcess) {
-        callback(false);
-        return;
-    }
-    registerToRTCDataChannelProxy();
-    connectionToWebProcess->registerToRTCDataChannelProxy();
-    connectionToWebProcess->m_connection->sendWithAsyncReply(Messages::NetworkProcessConnection::ConnectToRTCDataChannelRemoteSource { remoteIdentifier, localIdentifier }, WTF::move(callback), 0);
-}
-
-void NetworkConnectionToWebProcess::registerToRTCDataChannelProxy()
-{
-    if (m_isRegisteredToRTCDataChannelProxy)
-        return;
-    m_isRegisteredToRTCDataChannelProxy = true;
-    protect(m_networkProcess->rtcDataChannelProxy())->registerConnectionToWebProcess(*this);
-}
-
-void NetworkConnectionToWebProcess::unregisterToRTCDataChannelProxy()
-{
-    if (m_isRegisteredToRTCDataChannelProxy)
-        protect(m_networkProcess->rtcDataChannelProxy())->unregisterConnectionToWebProcess(*this);
-}
-#endif
 
 bool NetworkConnectionToWebProcess::dispatchSyncMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& reply)
 {

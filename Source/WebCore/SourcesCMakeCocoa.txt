@@ -51,7 +51,6 @@ Modules/encryptedmedia/legacy/WebKitMediaKeys.cpp
 
 
 
-Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
 
 Modules/webauthn/AuthenticationExtensionsClientInputs.cpp
 Modules/webauthn/AuthenticationExtensionsClientOutputs.cpp
@@ -101,9 +100,7 @@ platform/graphics/cv/PixelBufferConformerCV.mm @nonARC
 
 platform/mac/WebCoreView.mm @nonARC
 
-platform/mediarecorder/MediaRecorderPrivateWriter.cpp
 
-platform/mediastream/cocoa/CoreAudioCaptureUnit.mm @nonARC
 
 platform/network/cocoa/WebCoreResourceHandleAsOperationQueueDelegate.mm @nonARC
 
@@ -120,7 +117,6 @@ workers/service/ServiceWorkerRoute.mm @nonARC
 // fixed names, so any two gperf outputs in one translation unit collide.
 HTMLNames.cpp
 JSMediaConfiguration.cpp
-JSRTCRtpCodingParameters.cpp
 MathMLNames.cpp
 Namespace.cpp
 NodeName.cpp

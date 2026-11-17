@@ -3526,18 +3526,15 @@ GetBoundingClientRectZoomedEnabled:
 
 GetUserMediaRequiresFocus:
   type: bool
+  humanReadableName: "GetUserMedia Requires Focus"
+  humanReadableDescription: "Enable GetUserMedia Requires Focus"
   status: internal
   category: media
-  humanReadableName: "Require focus to start getUserMedia"
-  humanReadableDescription: "Require focus to start getUserMedia"
-  condition: ENABLE(MEDIA_STREAM)
   defaultValue:
-    WebKitLegacy:
-      default: true
     WebKit:
-      default: true
+      default: false
     WebCore:
-      default: true
+      default: false
 
 GlobalPrivacyControlEnabled:
   type: bool
@@ -3807,22 +3804,6 @@ HostedBlurMaterialInMediaControlsEnabled:
       default: false
     WebCore:
       default: false
-
-ICECandidateFilteringEnabled:
-  type: bool
-  status: internal
-  category: dom
-  webcoreOnChange: iceCandidateFilteringEnabledChanged
-  inspectorOverride: true
-  humanReadableName: "Enable ICE Candidate Filtering"
-  humanReadableDescription: "Enable ICE Candidate Filtering"
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
 
 IFrameResourceMonitorNetworkUsageThresholdForTesting:
   type: uint32_t
@@ -5381,19 +5362,15 @@ MediaCaptionFormatTypesAllowedInLockdownMode:
 
 MediaCaptureRequiresSecureConnection:
   type: bool
+  humanReadableName: "Media Capture Requires Secure Connection"
+  humanReadableDescription: "Enable Media Capture Requires Secure Connection"
   status: internal
   category: media
-  inspectorOverride: true
-  humanReadableName: "Limit Media Capture to Secure Sites"
-  humanReadableDescription: "Limit Media Capture to Secure Sites"
-  condition: ENABLE(MEDIA_STREAM)
   defaultValue:
-    WebKitLegacy:
-      default: true
     WebKit:
-      default: true
+      default: false
     WebCore:
-      default: true
+      default: false
 
 MediaCodecTypesAllowedInLockdownMode:
   type: String
@@ -5483,22 +5460,18 @@ MediaDataLoadsAutomatically:
       default: true
 
 # FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely (though we should still set the default value to false when initializing settings).
+
 MediaDevicesEnabled:
   type: bool
-  status: embedder
-  humanReadableName: "Media devices"
-  humanReadableDescription: "Enable media devices"
-  condition: ENABLE(MEDIA_STREAM)
+  humanReadableName: "Media Devices"
+  humanReadableDescription: "Enable Media Devices"
+  status: internal
+  category: media
   defaultValue:
-    WebKitLegacy:
-      default: false
     WebKit:
-      "PLATFORM(GTK) || PLATFORM(WPE)": true
       default: false
     WebCore:
-      "PLATFORM(GTK) || PLATFORM(WPE)": true
       default: false
-  disableInLockdownMode: true
 
 MediaEnabled:
   type: bool
@@ -5552,43 +5525,6 @@ MediaPreloadingEnabled:
       default: false
 
 # FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
-MediaRecorderEnabled:
-  type: bool
-  status: mature
-  category: media
-  humanReadableName: "MediaRecorder"
-  humanReadableDescription: "MediaRecorder"
-  condition: ENABLE(MEDIA_RECORDER)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      "USE(GSTREAMER)": true
-      default: false
-    WebCore:
-      default: false
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-  mediaPlaybackRelated: true
-
-MediaRecorderEnabledWebM:
-  type: bool
-  status: stable
-  category: media
-  humanReadableName: "MediaRecorder WebM"
-  humanReadableDescription: "Enable WebM support with MediaRecorder"
-  condition: ENABLE(MEDIA_RECORDER_WEBM)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      default: false
-  sharedPreferenceForWebProcess: true
-
 MediaSessionCaptureToggleAPIEnabled:
   type: bool
   status: stable
@@ -5720,38 +5656,6 @@ MediaSourcePrefersDecompressionSession:
       default: true
   sharedPreferenceForWebProcess: true
 
-MediaStreamTrackHandleEnabled:
-  type: bool
-  status: preview
-  category: media
-  humanReadableName: "MediaStreamTrackHandle"
-  humanReadableDescription: "Enable MediaStreamTrackHandle"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
-MediaStreamTrackProcessingEnabled:
-  type: bool
-  status: mature
-  category: media
-  humanReadableName: "MediaStreamTrack Processing"
-  humanReadableDescription: "Enable MediaStreamTrack Processing"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      "PLATFORM(COCOA)": true
-      default: false
-
 MediaUserGestureInheritsFromDocument:
   type: bool
   status: embedder
@@ -5827,30 +5731,15 @@ MinimumZoomFontSize:
 
 MockCaptureDevicesEnabled:
   type: bool
+  humanReadableName: "Mock Capture Devices"
+  humanReadableDescription: "Enable Mock Capture Devices"
   status: internal
   category: media
-  webcoreOnChange: mockCaptureDevicesEnabledChanged
-  inspectorOverride: true
-  condition: ENABLE(MEDIA_STREAM)
-  humanReadableName: "Enable Mock Capture Devices"
-  humanReadableDescription: "Enable Mock Capture Devices"
   defaultValue:
-    WebKitLegacy:
-      default: false
     WebKit:
-      "PLATFORM(IOS_FAMILY_SIMULATOR)": true
       default: false
     WebCore:
       default: false
-
-MockCaptureDevicesPromptEnabled:
-  type: bool
-  status: embedder
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: true
 
 MockScrollbarsControllerEnabled:
   type: bool
@@ -6497,39 +6386,16 @@ PasswordEchoEnabled:
 
 PeerConnectionEnabled:
   type: bool
-  status: embedder
-  humanReadableName: "WebRTC Peer Connection"
-  humanReadableDescription: "Enable RTCPeerConnection"
-  condition: ENABLE(WEB_RTC)
+  humanReadableName: "Peer Connection"
+  humanReadableDescription: "Enable Peer Connection"
+  status: internal
+  category: media
   defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      "USE(LIBWEBRTC)": WebKit::defaultPeerConnectionEnabledAvailable()
-      "USE(GSTREAMER_WEBRTC)": true
-      default: false
-    WebCore:
-      default: true
-  disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-  mediaPlaybackRelated: true
-
-PeerConnectionVideoScalingAdaptationDisabled:
-  type: bool
-  status: embedder
-  humanReadableName: "WebRTC Peer Connection Video Scaling Adaptation"
-  humanReadableDescription: "Disable RTCPeerConnection Video Scaling Adaptation"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: false
     WebKit:
       default: false
     WebCore:
       default: false
 
-# FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
 PerElementSpeakerSelectionEnabled:
   type: bool
   status: internal
@@ -7304,21 +7170,6 @@ ScopedCustomElementRegistryEnabled:
 
 # FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
 # FIXME: This should have it's own ENABLE.
-ScreenCaptureEnabled:
-  type: bool
-  status: mature
-  category: media
-  condition: ENABLE(MEDIA_STREAM)
-  humanReadableName: "ScreenCapture"
-  humanReadableDescription: "Enable ScreenCapture"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: WebKit::defaultShouldEnableScreenCapture()
-    WebCore:
-      default: false
-
 ScreenOrientationAPIEnabled:
   type: bool
   status: stable
@@ -9893,7 +9744,6 @@ WebCodecsVideoEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "USE(LIBWEBRTC) && PLATFORM(COCOA)": WebKit::defaultPeerConnectionEnabledAvailable()
       "USE(GSTREAMER)": true
       default: false
     WebCore:
@@ -10084,272 +9934,16 @@ WebLocksAPIEnabled:
   sharedPreferenceForWebProcess: true
   richJavaScript: true
 
-WebRTCAV1CodecEnabled:
-  type: bool
-  status: preview
-  category: media
-  humanReadableName: "WebRTC AV1 codec"
-  humanReadableDescription: "Enable WebRTC AV1 codec"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "USE(GSTREAMER)": true
-      default: false
-    WebCore:
-      "USE(GSTREAMER)": true
-      default: false
-
-WebRTCAudioLatencyAdaptationEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC Audio Latency Adaptation"
-  humanReadableDescription: "Enable WebRTC Audio Latency Adaptation"
-  webcoreBinding: DeprecatedGlobalSettings
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-
-# FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
-WebRTCDTMFEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC DTMF"
-  humanReadableDescription: "Enable WebRTC DTMF"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
-WebRTCEncodedTransformEnabled:
-  type: bool
-  status: mature
-  category: media
-  condition: ENABLE(WEB_RTC)
-  humanReadableName: "WebRTC Encoded Transform API"
-  humanReadableDescription: "Enable WebRTC Encoded Transform API"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "USE(LIBWEBRTC) && PLATFORM(COCOA)": WebKit::defaultPeerConnectionEnabledAvailable()
-      "USE(GSTREAMER_WEBRTC)": true
-      default: false
-    WebCore:
-      "USE(LIBWEBRTC)": true
-      "USE(GSTREAMER_WEBRTC)": true
-      default: false
-  disableInLockdownMode: true
-
-# FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
-WebRTCH264HardwareEncoderEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC H264 Hardware encoder"
-  humanReadableDescription: "Enable H264 Hardware encoder"
-  webcoreBinding: none
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-
-# FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
-WebRTCH265CodecEnabled:
-  type: bool
-  status: mature
-  category: media
-  condition: ENABLE(WEB_RTC)
-  humanReadableName: "WebRTC HEVC codec"
-  humanReadableDescription: "Enable WebRTC HEVC codec"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      "PLATFORM(COCOA)": true
-      default: false
-
-WebRTCInterfaceMonitoringViaNWEnabled:
-  type: bool
-  status: internal
-  category: media
-  condition: ENABLE(WEB_RTC) && PLATFORM(COCOA)
-  humanReadableName: "WebRTC interface monitoring via NW"
-  humanReadableDescription: "Enable WebRTC interface monitoring via NW"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-  sharedPreferenceForWebProcess: true
-
-WebRTCL4SEnabled:
-  type: bool
-  status: testable
-  category: media
-  condition: ENABLE(WEB_RTC)
-  humanReadableName: "WebRTC L4S support"
-  humanReadableDescription: "Enable WebRTC L4S support"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
-WebRTCMediaPipelineAdditionalLoggingEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC Media Pipeline Additional Logging"
-  humanReadableDescription: "Enable WebRTC Media Pipeline Additional Logging"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
-# FIXME: This is not relevant for WebKitLegacy, so should be excluded from WebKitLegacy entirely.
 WebRTCPlatformCodecsInGPUProcessEnabled:
   type: bool
-  status: embedder
-  humanReadableName: "GPU Process: WebRTC Platform Codecs"
-  humanReadableDescription: "Enable WebRTC Platform Codecs in GPU Process"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
-      default: false
-    WebCore:
-      default: false
-
-WebRTCRemoteVideoFrameEnabled:
-  type: bool
+  humanReadableName: "WebRTC Platform Codecs In GPU Process"
+  humanReadableDescription: "Enable WebRTC Platform Codecs In GPU Process"
   status: internal
   category: media
-  humanReadableName: "WebRTC Remote Video Frame"
-  humanReadableDescription: "Enable WebRTC Remote Video Frame"
-  condition: ENABLE(WEB_RTC)
   defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      default: false
-
-WebRTCSFrameTransformEnabled:
-  type: bool
-  status: testable
-  category: media
-  condition: ENABLE(WEB_RTC)
-  humanReadableName: "WebRTC SFrame Transform API"
-  humanReadableDescription: "Enable WebRTC SFrame Transform API"
-  defaultValue:
-    WebKitLegacy:
-      default: false
     WebKit:
       default: false
     WebCore:
-      default: false
-
-WebRTCSocketsProxyingEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC Sockets Proxying"
-  humanReadableDescription: "Enable WebRTC Sockets Proxying"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: true
-    WebCore:
-      default: false
-
-WebRTCSocketsServiceClassEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC Sockets Service Class"
-  humanReadableDescription: "Enable setting WebRTC Sockets Service Class"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: WebKit::defaultWebRTCSocketsServiceClassEnabled()
-    WebCore:
-      default: false
-
-WebRTCUDPPortRange:
-  type: String
-  status: embedder
-  category: media
-  humanReadableName: "WebRTC UDP Port Range"
-  humanReadableDescription: "Set a UDP port range for WebRTC. If set to 0:0, the port range is determined by the OS"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: '"0:0"_str'
-    WebKit:
-      default: '"0:0"_str'
-    WebCore:
-      default: '"0:0"_str'
-
-WebRTCVP9Profile0CodecEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "WebRTC VP9 profile 0 codec"
-  humanReadableDescription: "Enable WebRTC VP9 profile 0 codec"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
-WebRTCVP9Profile2CodecEnabled:
-  type: bool
-  status: mature
-  category: media
-  humanReadableName: "WebRTC VP9 profile 2 codec"
-  humanReadableDescription: "Enable WebRTC VP9 profile 2 codec"
-  condition: ENABLE(WEB_RTC)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      "PLATFORM(COCOA)": true
       default: false
 
 WebSQLEnabled:

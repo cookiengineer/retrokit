@@ -177,21 +177,6 @@ public:
 
     WEBCORE_EXPORT static bool shouldTranscodeHeicImagesForURL(const URL&);
 
-#if ENABLE(MEDIA_STREAM)
-    bool shouldEnableFacebookFlagQuirk() const;
-    Ref<NodeList> applyFacebookFlagQuirk(Document&, NodeList&);
-    bool shouldEnableLegacyGetUserMediaQuirk() const;
-    bool shouldDisableImageCaptureQuirk() const;
-    bool shouldAllowMediaStreamTrackSerializationQuirk() const;
-    bool shouldEnableSpeakerSelectionPermissionsPolicyQuirk() const;
-    bool shouldEnableEnumerateDeviceQuirk() const;
-    bool shouldEnableCameraAndMicrophonePermissionStateQuirk() const;
-    bool shouldEnableRemoteTrackLabelQuirk() const;
-    bool shouldEnableCameraBackgroundPlayback() const;
-#endif
-#if ENABLE(WEB_RTC)
-    bool shouldEnableRTCEncodedStreamsQuirk() const;
-#endif
 
     bool shouldUnloadHeavyFrame() const;
 

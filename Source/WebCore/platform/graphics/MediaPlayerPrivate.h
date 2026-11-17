@@ -68,9 +68,6 @@ public:
     virtual void readyStateFromMediaSourceChanged() { }
     virtual void characteristicsFromMediaSourceChanged() { }
 #endif
-#if ENABLE(MEDIA_STREAM)
-    virtual void load(MediaStreamPrivate&) = 0;
-#endif
     virtual void cancelLoad() = 0;
 
     virtual void prepareForPlayback(bool privateMode, MediaPlayer::Preload preload, bool preservesPitch, bool prepareToPlay, bool prepareToRender)

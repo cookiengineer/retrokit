@@ -35,7 +35,6 @@
 #include "RemoteAudioSessionProxyManager.h"
 #include "RemoteAudioSessionProxyMessages.h"
 #include <WebCore/AudioSession.h>
-#include <WebCore/AVAudioSessionCaptureDeviceManager.h>
 #include <wtf/TZoneMalloc.h>
 
 #define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, protect(connection()).ptr())
@@ -114,10 +113,6 @@ void RemoteAudioSessionProxy::tryToSetActive(bool active, SetActiveCompletion&& 
         if (m_active)
             m_isInterrupted = false;
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
-        if (m_active)
-            AVAudioSessionCaptureDeviceManager::singleton().setPreferredSpeakerID(m_speakerID);
-#endif
     }
 
     completion(success);
@@ -207,9 +202,6 @@ void RemoteAudioSessionProxy::setPreferredSpeakerID(const String& speakerID)
     if (!m_active)
         return;
 
-#if ENABLE(MEDIA_STREAM)
-    AVAudioSessionCaptureDeviceManager::singleton().setPreferredSpeakerID(m_speakerID);
-#endif
 }
 #endif
 

@@ -45,7 +45,6 @@
 #endif
 
 #if USE(LIBWEBRTC)
-#include <WebCore/LibWebRTCProvider.h>
 #endif
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -114,40 +113,6 @@ bool defaultAppleMailPaginationQuirkEnabled()
 
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-bool defaultCaptureAudioInGPUProcessEnabled()
-{
-#if ENABLE(GPU_PROCESS_BY_DEFAULT)
-    return true;
-#else
-    return false;
-#endif
-}
-
-SUPPRESS_NODELETE bool defaultManageCaptureStatusBarInGPUProcessEnabled()
-{
-#if PLATFORM(IOS_FAMILY)
-    // FIXME: Enable by default for all applications.
-    return !WTF::IOSApplication::isMobileSafari() && !WTF::IOSApplication::isSafariViewService();
-#else
-    return false;
-#endif
-}
-
-SUPPRESS_NODELETE double defaultInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes()
-{
-    constexpr double inactiveMediaCaptureStreamRepromptIntervalForDesktop = 10;
-
-#if PLATFORM(IOS_FAMILY)
-    constexpr double inactiveMediaCaptureStreamRepromptIntervalForiOS = 1;
-    if (!PAL::currentUserInterfaceIdiomIsDesktop())
-        return inactiveMediaCaptureStreamRepromptIntervalForiOS;
-#endif
-
-    return inactiveMediaCaptureStreamRepromptIntervalForDesktop;
-}
-
-#endif // ENABLE(MEDIA_STREAM)
 
 #if ENABLE(MEDIA_SOURCE)
 bool defaultManagedMediaSourceEnabled()
@@ -267,23 +232,6 @@ SUPPRESS_NODELETE bool defaultShouldEnableScreenOrientationAPI()
 #elif PLATFORM(IOS_FAMILY)
     static bool shouldEnableScreenOrientationAPI = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ScreenOrientationAPIEnabled) || WTF::IOSApplication::isHoYoLAB();
     return shouldEnableScreenOrientationAPI;
-#else
-    return false;
-#endif
-}
-
-#if USE(LIBWEBRTC)
-bool defaultPeerConnectionEnabledAvailable()
-{
-    // This helper function avoid an expensive header include in WebPreferences.h
-    return WebCore::WebRTCProvider::webRTCAvailable();
-}
-#endif
-
-bool defaultWebRTCSocketsServiceClassEnabled()
-{
-#if ENABLE(WEBRTC_SOCKETS_SERVICECLASS_ENABLED)
-    return true;
 #else
     return false;
 #endif
@@ -501,20 +449,6 @@ bool defaultCaptionDisplaySettingsEnabled()
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-bool defaultShouldEnableScreenCapture()
-{
-#if USE(APPLE_INTERNAL_SDK)
-    return defaultShouldEnableScreenCaptureFromAdditions();
-#endif
-
-#if USE(GSTREAMER) || PLATFORM(MAC)
-    return true;
-#endif
-
-    return false;
-}
-#endif
 
 bool defaultWebTransportEnabled()
 {

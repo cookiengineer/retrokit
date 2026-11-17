@@ -53,6 +53,7 @@
 
 #import "CoreVideoSoftLink.h"
 #import "VideoToolboxSoftLink.h"
+#include "SampleBufferDisplayLayer.h"
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 

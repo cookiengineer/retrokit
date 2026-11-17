@@ -81,9 +81,6 @@ static bool isSupportedEncoderCodec(const WebCodecsVideoEncoderConfig& config, c
         return false;
 
     return config.codec.startsWith("vp8"_s) || config.codec.startsWith("vp09.00"_s) || config.codec.startsWith("avc1."_s)
-#if ENABLE(WEB_RTC)
-        || (config.codec.startsWith("vp09.02"_s) && settings.webRTCVP9Profile2CodecEnabled)
-#endif
         || (config.codec.startsWith("hev1."_s) && settings.webCodecsHEVCEnabled)
         || (config.codec.startsWith("hvc1."_s) && settings.webCodecsHEVCEnabled)
         || (config.codec.startsWith("av01.0"_s) && settings.webCodecsAV1Enabled);

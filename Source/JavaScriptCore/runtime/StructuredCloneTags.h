@@ -288,9 +288,6 @@ enum SerializationTag {
     DOMMatrixTag = 41,
     DOMQuadTag = 42,
     ImageBitmapTransferTag = 43,
-#if ENABLE(WEB_RTC)
-    RTCCertificateTag = 44,
-#endif
     ImageBitmapTag = 45,
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     OffscreenCanvasTransferTag = 46,
@@ -299,9 +296,6 @@ enum SerializationTag {
     BigIntObjectTag = 48,
 #if ENABLE(WEBASSEMBLY)
     WasmMemoryTag = 49,
-#endif
-#if ENABLE(WEB_RTC)
-    RTCDataChannelTransferTag = 50,
 #endif
     DOMExceptionTag = 51,
 #if ENABLE(WEB_CODECS)
@@ -318,18 +312,8 @@ enum SerializationTag {
     WebCodecsEncodedAudioChunkTag = 58,
     WebCodecsAudioDataTag = 59,
 #endif
-#if ENABLE(MEDIA_STREAM)
-    MediaStreamTrackTag = 60,
-#endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     MediaSourceHandleTransferTag = 61,
-#endif
-#if ENABLE(WEB_RTC)
-    RTCEncodedAudioFrameTag = 62,
-    RTCEncodedVideoFrameTag = 63,
-#endif
-#if ENABLE(MEDIA_STREAM)
-    MediaStreamTrackHandleTag = 64,
 #endif
     ReadableStreamTag = 65,
     WritableStreamTag = 66,
@@ -554,9 +538,6 @@ inline ASCIILiteral name(SerializationTag tag)
     case DOMMatrixTag: return "DOMMatrixTag"_s;
     case DOMQuadTag: return "DOMQuadTag"_s;
     case ImageBitmapTransferTag: return "ImageBitmapTransferTag"_s;
-#if ENABLE(WEB_RTC)
-    case RTCCertificateTag: return "RTCCertificateTag"_s;
-#endif
     case ImageBitmapTag: return "ImageBitmapTag"_s;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     case OffscreenCanvasTransferTag: return "OffscreenCanvasTransferTag"_s;
@@ -565,9 +546,6 @@ inline ASCIILiteral name(SerializationTag tag)
     case BigIntObjectTag: return "BigIntObjectTag"_s;
 #if ENABLE(WEBASSEMBLY)
     case WasmMemoryTag: return "WasmMemoryTag"_s;
-#endif
-#if ENABLE(WEB_RTC)
-    case RTCDataChannelTransferTag: return "RTCDataChannelTransferTag"_s;
 #endif
     case DOMExceptionTag: return "DOMExceptionTag"_s;
 #if ENABLE(WEB_CODECS)
@@ -584,16 +562,8 @@ inline ASCIILiteral name(SerializationTag tag)
     case WebCodecsEncodedAudioChunkTag: return "WebCodecsEncodedAudioChunkTag"_s;
     case WebCodecsAudioDataTag: return "WebCodecsAudioDataTag"_s;
 #endif
-#if ENABLE(MEDIA_STREAM)
-    case MediaStreamTrackTag: return "MediaStreamTrackTag"_s;
-    case MediaStreamTrackHandleTag: return "MediaStreamTrackHandleTag"_s;
-#endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     case MediaSourceHandleTransferTag: return "MediaSourceHandleTransferTag"_s;
-#endif
-#if ENABLE(WEB_RTC)
-    case RTCEncodedAudioFrameTag: return "RTCEncodedAudioFrameTag"_s;
-    case RTCEncodedVideoFrameTag: return "RTCEncodedVideoFrameTag"_s;
 #endif
     case ReadableStreamTag: return "ReadableStreamTag"_s;
     case WritableStreamTag: return "WritableStreamTag"_s;

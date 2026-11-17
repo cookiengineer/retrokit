@@ -96,11 +96,6 @@ bool defaultUseAppKitGestures();
 bool defaultTextInputClientSelectionUpdatesEnabled();
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-bool NODELETE defaultCaptureAudioInGPUProcessEnabled();
-bool NODELETE defaultManageCaptureStatusBarInGPUProcessEnabled();
-double NODELETE defaultInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes();
-#endif
 
 #if ENABLE(MEDIA_SOURCE) && PLATFORM(IOS_FAMILY)
 bool defaultMediaSourceEnabled();
@@ -149,9 +144,7 @@ bool defaultPopoverAttributeEnabled();
 bool defaultUseGPUProcessForDOMRenderingEnabled();
 
 #if USE(LIBWEBRTC)
-bool defaultPeerConnectionEnabledAvailable();
 #endif
-bool NODELETE defaultWebRTCSocketsServiceClassEnabled();
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
 bool NODELETE defaultBuiltInNotificationsEnabled();
@@ -213,9 +206,6 @@ bool NODELETE defaultAllowMultipleCommitLayerTreePending();
 bool defaultCaptionDisplaySettingsEnabled();
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-bool NODELETE defaultShouldEnableScreenCapture();
-#endif
 
 #if ENABLE(CONTENT_CHANGE_OBSERVER)
 bool defaultContentChangeObserverEnabled();

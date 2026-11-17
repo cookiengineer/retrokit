@@ -75,9 +75,6 @@
 #include <WebCore/PlatformDisplayDefault.h>
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include "UserMediaCaptureManager.h"
-#endif
 
 #if HAVE(MALLOC_TRIM)
 #include <malloc.h>
@@ -218,9 +215,6 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
         ProcessCapabilities::setCanUseAcceleratedBuffers(false);
     IGNORE_CLANG_WARNINGS_END
 
-#if ENABLE(MEDIA_STREAM)
-    addSupplementWithoutRefCountedCheck<UserMediaCaptureManager>();
-#endif
 
 #if USE(GBM)
     DRMDeviceManager::singleton().initializeMainDevice(WTF::move(parameters.drmDevice));

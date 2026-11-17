@@ -27,8 +27,8 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "SharedVideoFrame.h"
 #include "WebGPUObjectDescriptorBase.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/MediaPlayerIdentifier.h>
 #include <WebCore/WebGPUExternalTextureDescriptor.h>
 #include <WebCore/WebGPUPredefinedColorSpace.h>

@@ -615,12 +615,6 @@ String searchMenuClearRecentSearchesText()
 
 #endif // !PLATFORM(IOS_FAMILY)
 
-#if ENABLE(MEDIA_STREAM)
-String defaultSystemSpeakerLabel()
-{
-    return WEB_UI_STRING("Default", "label for the default system speaker");
-}
-#endif
 
 String AXWebAreaText()
 {

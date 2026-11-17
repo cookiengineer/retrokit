@@ -31,7 +31,6 @@
 #import "AVAssetMIMETypeCache.h"
 #import "AVAssetTrackUtilities.h"
 #import "AVStreamDataParserMIMETypeCache.h"
-#import "AudioMediaStreamTrackRenderer.h"
 #import "AudioVideoRendererAVFObjC.h"
 #import "CDMInstance.h"
 #import "CDMSessionAVContentKeySession.h"
@@ -79,6 +78,7 @@
 #import <wtf/spi/cocoa/NSObjCRuntimeSPI.h>
 
 #import "CoreVideoSoftLink.h"
+#include "SampleBufferDisplayLayer.h"
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <pal/cocoa/MediaToolboxSoftLink.h>
@@ -333,12 +333,6 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setResourceOwner(const ProcessIdentit
     m_renderer->setResourceOwner(resourceOwner);
 }
 
-#if ENABLE(MEDIA_STREAM)
-void MediaPlayerPrivateMediaSourceAVFObjC::load(MediaStreamPrivate&)
-{
-    setNetworkState(MediaPlayer::NetworkState::FormatError);
-}
-#endif
 
 void MediaPlayerPrivateMediaSourceAVFObjC::cancelLoad()
 {

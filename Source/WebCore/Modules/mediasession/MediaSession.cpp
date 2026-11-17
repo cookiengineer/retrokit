@@ -49,7 +49,6 @@
 #include "PageGroup.h"
 #include "PlatformMediaSessionManager.h"
 #include "Settings.h"
-#include "UserMediaController.h"
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/JSONValues.h>
 #include <wtf/SortedArrayMap.h>
@@ -292,19 +291,6 @@ void MediaSession::setPlaybackState(MediaSessionPlaybackState state)
 
 ExceptionOr<void> MediaSession::setActionHandler(MediaSessionAction action, RefPtr<MediaSessionActionHandler>&& handler)
 {
-#if ENABLE(MEDIA_STREAM)
-    RefPtr document = this->document();
-    if (document && !document->settings().mediaSessionCaptureToggleAPIEnabled() && (action == MediaSessionAction::Togglecamera || action == MediaSessionAction::Togglemicrophone || action == MediaSessionAction::Togglescreenshare || action == MediaSessionAction::Voiceactivity))
-        return Exception { ExceptionCode::TypeError, makeString("Argument 1 ('action') to MediaSession.setActionHandler must be a value other than '"_s, convertEnumerationToString(action), "'"_s) };
-
-#if PLATFORM(MAC) && !HAVE(VOICEACTIVITYDETECTION)
-    if (document && action == MediaSessionAction::Voiceactivity)
-        return Exception { ExceptionCode::TypeError, makeString("Argument 1 ('action') to MediaSession.setActionHandler must be a value other than '"_s, convertEnumerationToString(action), "'"_s) };
-#endif
-
-    if (document && action == MediaSessionAction::Voiceactivity)
-        document->setShouldListenToVoiceActivity(!!handler);
-#endif
 
     if (RefPtr document = this->document(); document && !document->settings().mediaSessionExtendedActionsEnabled() && (action == MediaSessionAction::Hangup || action == MediaSessionAction::Previousslide || action == MediaSessionAction::Nextslide || action == MediaSessionAction::Enterpictureinpicture))
         return Exception { ExceptionCode::TypeError, makeString("Argument 1 ('action') to MediaSession.setActionHandler must be a value other than '"_s, convertEnumerationToString(action), "'"_s) };
@@ -617,45 +603,6 @@ void MediaSession::updateNowPlayingInfo(NowPlayingInfo& info)
     }
 }
 
-#if ENABLE(MEDIA_STREAM)
-void MediaSession::updateCaptureState(bool isActive, DOMPromiseDeferred<void>&& promise, MediaProducerMediaCaptureKind kind)
-{
-    RefPtr document = this->document();
-    if (!document || !document->isFullyActive()) {
-        promise.reject(Exception { ExceptionCode::InvalidStateError, "Document is not fully active or does not have focus"_s });
-        return;
-    }
-
-    if (isActive && (document->hidden() || !UserGestureIndicator::currentUserGesture())) {
-        promise.reject(Exception { ExceptionCode::InvalidStateError, "Activating capture must be called from a user gesture handler."_s });
-        return;
-    }
-
-    auto* controller = UserMediaController::from(protect(document->page()));
-    if (!controller) {
-        promise.reject(Exception { ExceptionCode::InvalidStateError, "Unable to proceed with the request."_s });
-        return;
-    }
-
-    if (!document->isCapturing()) {
-        promise.resolve();
-        return;
-    }
-
-    controller->updateCaptureState(*document, isActive, kind, [weakDocument = WeakPtr { document.get() }, promise = WTF::move(promise)] (auto&& exception) mutable {
-        RefPtr protectedDocument = weakDocument.get();
-        if (!protectedDocument)
-            return;
-        protectedDocument->eventLoop().queueTask(TaskSource::MediaElement, [promise = WTF::move(promise), exception = WTF::move(exception)] () mutable {
-            if (exception) {
-                promise.reject(WTF::move(*exception));
-                return;
-            }
-            promise.resolve();
-        });
-    });
-}
-#endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
 void MediaSession::notifyReadyStateObservers()

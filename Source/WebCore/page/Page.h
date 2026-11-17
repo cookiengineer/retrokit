@@ -161,7 +161,6 @@ class PointerCaptureController;
 class PointerLockController;
 class DocumentSyncClient;
 class ProgressTracker;
-class RTCController;
 class RenderObject;
 class ResourceUsageOverlay;
 class RenderingUpdateScheduler;
@@ -192,7 +191,6 @@ class ValidationMessageClient;
 class VisibleSelection;
 class VisitedLinkStore;
 class WeakPtrImplWithEventTargetData;
-class WebRTCProvider;
 class WheelEventDeltaFilter;
 class WheelEventTestMonitor;
 class WindowEventLoop;
@@ -500,11 +498,6 @@ public:
 #if ENABLE(POINTER_LOCK)
     PointerLockController& pointerLockController() LIFETIME_BOUND { return m_pointerLockController.get(); }
 #endif
-    WebRTCProvider& webRTCProvider() LIFETIME_BOUND { return m_webRTCProvider.get(); }
-    RTCController& rtcController() { return m_rtcController.get(); }
-    WEBCORE_EXPORT void disableICECandidateFiltering();
-    WEBCORE_EXPORT void enableICECandidateFiltering();
-    bool shouldEnableICECandidateFilteringByDefault() const { return m_shouldEnableICECandidateFilteringByDefault; }
 
     void didChangeMainDocument(Document* newDocument);
     void mainFrameDidChangeToNonInitialEmptyDocument();
@@ -1019,10 +1012,6 @@ public:
     WEBCORE_EXPORT void setShouldSuppressHDR(bool);
 
     WEBCORE_EXPORT void stopMediaCapture(MediaProducerMediaCaptureKind);
-#if ENABLE(MEDIA_STREAM)
-    WEBCORE_EXPORT void updateCaptureState(bool isActive, MediaProducerMediaCaptureKind);
-    WEBCORE_EXPORT void voiceActivityDetected();
-#endif
 
 #if ENABLE(MODEL_PROCESS)
     void incrementModelElementCount();
@@ -1495,8 +1484,6 @@ private:
 
     const UniqueRef<SpeechRecognitionProvider> m_speechRecognitionProvider;
 
-    const UniqueRef<WebRTCProvider> m_webRTCProvider;
-    const Ref<RTCController> m_rtcController;
 
     PlatformDisplayID m_displayID { 0 };
     std::optional<FramesPerSecond> m_displayNominalFramesPerSecond;
@@ -1648,7 +1635,6 @@ private:
     bool m_controlledByAutomation { false };
     bool m_resourceCachingDisabledByWebInspector { false };
     bool m_isUtilityPage;
-    bool m_shouldEnableICECandidateFilteringByDefault { true };
     bool m_mediaPlaybackIsSuspended { false };
     bool m_mediaBufferingIsSuspended { false };
     bool m_hasResourceLoadClient { false };

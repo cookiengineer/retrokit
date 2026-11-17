@@ -55,8 +55,6 @@
 #include "InjectedBundleHitTestResult.h"
 #include "InjectedBundleScriptWorld.h"
 #include "JavaScriptEvaluationResult.h"
-#include "LibWebRTCCodecs.h"
-#include "LibWebRTCProvider.h"
 #include "LoadParameters.h"
 #include "Logging.h"
 #include "MediaKeySystemPermissionRequestManager.h"
@@ -84,7 +82,6 @@
 #include "ShareableBitmapUtilities.h"
 #include "SharedBufferReference.h"
 #include "TextRecognitionUpdateResult.h"
-#include "UserMediaPermissionRequestManager.h"
 #include "ViewGestureGeometryCollector.h"
 #include "VisitedLinkTableController.h"
 #include "WKBundleAPICast.h"
@@ -169,7 +166,6 @@
 #include "WebURLSchemeHandlerProxy.h"
 #include "WebUndoStep.h"
 #include "WebUserContentController.h"
-#include "WebUserMediaClient.h"
 #include "WebValidationMessageClient.h"
 #include "WebWheelEvent.h"
 #include "WebsiteDataStoreParameters.h"
@@ -433,9 +429,6 @@
 #include <WebCore/DataDetectionResultsStorage.h>
 #endif
 
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
-#include <WebCore/MockRealtimeMediaSourceCenter.h>
-#endif
 
 #if ENABLE(WEB_AUTHN)
 #include "DigitalCredentialsCoordinator.h"
@@ -671,9 +664,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     , m_foundTextRangeController(makeUniqueRef<WebFoundTextRangeController>(*this))
     , m_userContentController(WebUserContentController::getOrCreate(WTF::move(parameters.userContentControllerParameters)))
     , m_screenOrientationManager(makeUniqueRefWithoutRefCountedCheck<WebScreenOrientationManager>(*this))
-#if ENABLE(MEDIA_STREAM)
-    , m_userMediaPermissionRequestManager { makeUniqueRefWithoutRefCountedCheck<UserMediaPermissionRequestManager>(*this) }
-#endif
 #if ENABLE(ENCRYPTED_MEDIA)
     , m_mediaKeySystemPermissionRequestManager { makeUniqueRefWithoutRefCountedCheck<MediaKeySystemPermissionRequestManager>(*this) }
 #endif
@@ -791,7 +781,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
         WebProcess::singleton().sessionID(),
         makeUniqueRef<WebEditorClient>(*this),
         WebSocketProvider::create(parameters.webPageProxyIdentifier),
-        createLibWebRTCProvider(*this),
         WebProcess::singleton().cacheStorageProvider(),
         m_userContentController,
         WebBackForwardListProxy::create(*this),
@@ -1047,9 +1036,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 #if ENABLE(NOTIFICATIONS)
     WebCore::provideNotification(page.ptr(), new WebNotificationClient(this));
 #endif
-#if ENABLE(MEDIA_STREAM)
-    WebCore::provideUserMediaTo(page.ptr(), WebUserMediaClient::create(*this));
-#endif
 #if ENABLE(ENCRYPTED_MEDIA)
     WebCore::provideMediaKeySystemTo(page, WebMediaKeySystemClient::create(*this));
 #endif
@@ -1196,16 +1182,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 
     setNeedsScrollGeometryUpdates(parameters.needsScrollGeometryUpdates);
 
-#if ENABLE(WEB_RTC)
-    if (!parameters.iceCandidateFilteringEnabled)
-        page->disableICECandidateFiltering();
-#if USE(LIBWEBRTC)
-    if (parameters.enumeratingAllNetworkInterfacesEnabled)
-        downcast<LibWebRTCProvider>(page->webRTCProvider()).enableEnumeratingAllNetworkInterfaces();
-    if (parameters.store.getBoolValueForKey(WebPreferencesKey::enumeratingVisibleNetworkInterfacesEnabledKey()))
-        downcast<LibWebRTCProvider>(page->webRTCProvider()).enableEnumeratingVisibleNetworkInterfaces();
-#endif
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     setViewportConfigurationViewLayoutSize(parameters.viewportConfigurationViewLayoutSize, parameters.viewportConfigurationLayoutSizeScaleFactorFromClient, parameters.viewportConfigurationMinimumEffectiveDeviceWidth);
@@ -6345,50 +6321,6 @@ void WebPage::extendSandboxForFilesFromOpenPanel(Vector<SandboxExtension::Handle
 #endif
 
 
-#if ENABLE(MEDIA_STREAM)
-
-void WebPage::userMediaAccessWasGranted(UserMediaRequestIdentifier userMediaID, WebCore::CaptureDevice&& audioDevice, WebCore::CaptureDevice&& videoDevice, WebCore::MediaDeviceHashSalts&& mediaDeviceIdentifierHashSalts, Vector<SandboxExtension::Handle>&& handles, CompletionHandler<void()>&& completionHandler)
-{
-    SandboxExtension::consumePermanently(handles);
-
-    m_userMediaPermissionRequestManager->userMediaAccessWasGranted(userMediaID, WTF::move(audioDevice), WTF::move(videoDevice), WTF::move(mediaDeviceIdentifierHashSalts), WTF::move(completionHandler));
-}
-
-void WebPage::userMediaAccessWasDenied(UserMediaRequestIdentifier userMediaID, uint64_t reason, String&& message, WebCore::MediaConstraintType invalidConstraint)
-{
-    m_userMediaPermissionRequestManager->userMediaAccessWasDenied(userMediaID, static_cast<MediaAccessDenialReason>(reason), WTF::move(message), invalidConstraint);
-}
-
-void WebPage::captureDevicesChanged()
-{
-    m_userMediaPermissionRequestManager->captureDevicesChanged();
-}
-
-void WebPage::voiceActivityDetected()
-{
-    protect(corePage())->voiceActivityDetected();
-}
-
-#if USE(GSTREAMER)
-void WebPage::setOrientationForMediaCapture(uint64_t rotation)
-{
-    m_page->forEachDocument([&](auto& document) {
-        document.orientationChanged(rotation);
-    });
-}
-
-void WebPage::setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted)
-{
-    MockRealtimeMediaSourceCenter::setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
-}
-
-void WebPage::triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay)
-{
-    MockRealtimeMediaSourceCenter::singleton().triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-}
-#endif // USE(GSTREAMER)
-
-#endif // ENABLE(MEDIA_STREAM)
 
 #if ENABLE(ENCRYPTED_MEDIA)
 void WebPage::mediaKeySystemWasGranted(MediaKeySystemRequestIdentifier mediaKeySystemID, String&& mediaKeysHashSalt)
@@ -7264,9 +7196,6 @@ void WebPage::setMuted(MediaProducerMutedStateFlags state, CompletionHandler<voi
 
 void WebPage::stopMediaCapture(MediaProducerMediaCaptureKind kind, CompletionHandler<void()>&& completionHandler)
 {
-#if ENABLE(MEDIA_STREAM)
-    protect(corePage())->stopMediaCapture(kind);
-#endif
     completionHandler();
 }
 
@@ -10776,30 +10705,6 @@ void WebPage::simulateClickOverFirstMatchingTextInViewportWithUserInteraction(co
     completion(true);
 }
 
-#if ENABLE(MEDIA_STREAM)
-void WebPage::updateCaptureState(const WebCore::Document& document, bool isActive, WebCore::MediaProducerMediaCaptureKind kind, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&& completionHandler)
-{
-    RefPtr frame = document.frame();
-    if (!frame) {
-        completionHandler(WebCore::Exception { ExceptionCode::InvalidStateError, "no frame available"_s });
-        return;
-    }
-
-    RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
-    ASSERT(webFrame);
-
-    sendWithAsyncReply(Messages::WebPageProxy::ValidateCaptureStateUpdate(UserMediaRequestIdentifier::generate(), document.clientOrigin(), webFrame->info(), isActive, kind), [weakThis = WeakPtr { *this }, isActive, kind, completionHandler = WTF::move(completionHandler)] (auto&& error) mutable {
-        completionHandler(WTF::move(error));
-        if (error)
-            return;
-
-        RefPtr webPage = weakThis.get();
-        RefPtr page = webPage ? webPage->corePage() : nullptr;
-        if (page)
-            page->updateCaptureState(isActive, kind);
-    });
-}
-#endif
 
 void WebPage::updateOpener(WebCore::FrameIdentifier frameID, std::optional<WebCore::FrameIdentifier> newOpenerIdentifier)
 {

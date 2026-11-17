@@ -89,10 +89,13 @@ GPUProcess/media/RemoteMediaPlayerProxy.cpp @cost:4
 GPUProcess/media/RemoteMediaResource.cpp @cost:3
 GPUProcess/media/RemoteMediaResourceLoader.cpp @cost:3
 GPUProcess/media/RemoteVideoFrameObjectHeap.cpp
+GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager.cpp
+WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor.cpp
+WebProcess/GPU/webrtc/SampleBufferDisplayLayer.cpp
+WebProcess/GPU/webrtc/SampleBufferDisplayLayerManager.cpp
 GPUProcess/media/RemoteRemoteCommandListenerProxy.cpp
 GPUProcess/media/RemoteTextTrackProxy.cpp @cost:3
 GPUProcess/media/RemoteVideoTrackProxy.cpp @cost:3
-GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager.cpp
 
 ModelProcess/ModelProcess.cpp
 ModelProcess/ModelConnectionToWebProcess.cpp
@@ -204,8 +207,6 @@ NetworkProcess/cache/NetworkCacheStorage.cpp
 NetworkProcess/cache/NetworkCacheSubresourcesEntry.cpp
 NetworkProcess/cache/PrefetchCache.cpp
 
-NetworkProcess/webrtc/NetworkMDNSRegister.cpp @cost:4
-NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy.cpp @cost:4
 
 NetworkProcess/webtransport/NetworkTransportSession.cpp
 NetworkProcess/webtransport/NetworkTransportStream.cpp
@@ -233,8 +234,6 @@ Shared/KeyEventInterpretationContext.cpp
 Shared/PersistencyUtils.cpp
 Shared/PrintInfo.cpp
 Shared/ProcessTerminationReason.cpp
-Shared/RTCNetwork.cpp
-Shared/RTCPacketOptions.cpp
 Shared/ScriptTrackingPrivacyFilter.cpp
 Shared/ScrollingAccelerationCurve.cpp
 Shared/SessionState.cpp
@@ -424,8 +423,6 @@ UIProcess/RemotePageVideoPresentationManagerProxy.cpp
 UIProcess/RemotePageWebAuthenticatorCoordinatorProxy.cpp
 UIProcess/ResponsivenessTimer.cpp
 UIProcess/SessionHistoryTraversalQueue.cpp
-UIProcess/SpeechRecognitionRemoteRealtimeMediaSource.cpp
-UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager.cpp
 UIProcess/SpeechRecognitionServer.cpp
 UIProcess/SuspendedPageProxy.cpp @cost:5
 UIProcess/SystemPreviewController.cpp
@@ -435,10 +432,6 @@ UIProcess/TextCheckerCompletion.cpp
 UIProcess/TextExtractionAssertionScope.cpp
 UIProcess/TextExtractionCache.cpp
 UIProcess/UIProcessLogInitialization.cpp
-UIProcess/UserMediaPermissionCheckProxy.cpp
-UIProcess/UserMediaPermissionRequestManagerProxy.cpp @cost:5
-UIProcess/UserMediaPermissionRequestProxy.cpp
-UIProcess/UserMediaProcessManager.cpp
 UIProcess/VisitedLinkStore.cpp
 UIProcess/WebBackForwardCache.cpp
 UIProcess/WebBackForwardCacheEntry.cpp
@@ -538,7 +531,6 @@ UIProcess/API/C/WKJSHandleRef.cpp
 UIProcess/API/C/WKKeyValueStorageManager.cpp
 UIProcess/API/C/WKMediaKeySystemPermissionCallback.cpp
 UIProcess/API/C/WKMessageListener.cpp
-UIProcess/API/C/WKMockMediaDevice.cpp
 UIProcess/API/C/WKNavigationActionRef.cpp
 UIProcess/API/C/WKNavigationDataRef.cpp
 UIProcess/API/C/WKNavigationRef.cpp
@@ -560,7 +552,6 @@ UIProcess/API/C/WKSessionStateRef.cpp
 UIProcess/API/C/WKTextChecker.cpp
 UIProcess/API/C/WKUserContentControllerRef.cpp
 UIProcess/API/C/WKUserContentExtensionStoreRef.cpp
-UIProcess/API/C/WKUserMediaPermissionRequest.cpp
 UIProcess/API/C/WKUserScriptRef.cpp
 UIProcess/API/C/WKWebsiteDataStoreConfigurationRef.cpp
 UIProcess/API/C/WKWebsiteDataStoreRef.cpp
@@ -741,8 +732,6 @@ WebProcess/Media/RemoteMediaSessionManager.cpp
 
 WebProcess/MediaSession/RemoteMediaSessionCoordinator.cpp
 
-WebProcess/MediaStream/MediaDeviceSandboxExtensions.cpp
-WebProcess/MediaStream/UserMediaPermissionRequestManager.cpp
 
 WebProcess/Model/WebModelPlayerProvider.cpp
 WebProcess/Model/ModelProcessConnection.cpp
@@ -820,10 +809,6 @@ WebProcess/GPU/media/RemoteVideoCodecFactory.cpp
 WebProcess/GPU/media/TextTrackPrivateRemote.cpp
 WebProcess/GPU/media/VideoTrackPrivateRemote.cpp
 WebProcess/GPU/media/WebMediaStrategy.cpp
-WebProcess/GPU/webrtc/LibWebRTCCodecs.cpp @cost:4
-WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor.cpp
-WebProcess/GPU/webrtc/SampleBufferDisplayLayer.cpp
-WebProcess/GPU/webrtc/SampleBufferDisplayLayerManager.cpp
 
 WebProcess/Network/NetworkProcessConnection.cpp @cost:4
 WebProcess/Network/WebLoaderStrategy.cpp @cost:4
@@ -834,18 +819,6 @@ WebProcess/Network/WebSocketChannelManager.cpp
 WebProcess/Network/WebSocketProvider.cpp
 WebProcess/Network/WebTransportSession.cpp @cost:4
 
-WebProcess/Network/webrtc/LibWebRTCDnsResolverFactory.cpp
-WebProcess/Network/webrtc/LibWebRTCNetwork.cpp
-WebProcess/Network/webrtc/LibWebRTCNetworkManager.cpp @cost:3
-WebProcess/Network/webrtc/LibWebRTCProvider.cpp @cost:3
-WebProcess/Network/webrtc/LibWebRTCResolver.cpp
-WebProcess/Network/webrtc/LibWebRTCSocket.cpp
-WebProcess/Network/webrtc/LibWebRTCSocketFactory.cpp
-WebProcess/Network/webrtc/RTCDataChannelRemoteManager.cpp
-WebProcess/Network/webrtc/WebMDNSRegister.cpp
-WebProcess/Network/webrtc/WebRTCMonitor.cpp
-WebProcess/Network/webrtc/WebRTCNetworkBase.cpp
-WebProcess/Network/webrtc/WebRTCResolver.cpp
 
 WebProcess/Notifications/NotificationPermissionRequestManager.cpp
 WebProcess/Notifications/WebNotificationManager.cpp
@@ -853,7 +826,6 @@ WebProcess/Notifications/WebNotificationManager.cpp
 WebProcess/Plugins/PluginView.cpp @cost:6
 WebProcess/Plugins/WebPluginInfoProvider.cpp
 
-WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager.cpp
 
 WebProcess/Storage/RemoteWorkerFrameLoaderClient.cpp
 WebProcess/Storage/WebSWClientConnection.cpp @cost:4
@@ -902,7 +874,6 @@ WebProcess/WebCoreSupport/WebRemoteFrameClient.cpp
 WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp
 WebProcess/WebCoreSupport/WebScreenOrientationManager.cpp
 WebProcess/WebCoreSupport/WebSearchPopupMenu.cpp
-WebProcess/WebCoreSupport/WebUserMediaClient.cpp
 WebProcess/WebCoreSupport/WebSpeechRecognitionConnection.cpp
 WebProcess/WebCoreSupport/WebSpeechSynthesisClient.cpp
 WebProcess/WebCoreSupport/WebStorageConnection.cpp
@@ -949,9 +920,6 @@ ModelProcessModelPlayerManagerProxyMessageReceiver.cpp
 ModelProcessModelPlayerMessageReceiver.cpp
 NetworkBroadcastChannelRegistryMessageReceiver.cpp
 NetworkTransportSessionMessageReceiver.cpp
-RTCDataChannelRemoteManagerMessageReceiver.cpp
-RTCDataChannelRemoteManagerProxyMessageReceiver.cpp
-RemoteAudioMediaStreamTrackRendererInternalUnitManagerMessageReceiver.cpp
 RemoteSnapshotRecorderMessageReceiver.cpp @cost:5
 RemoteGraphicsContextMessageReceiver.cpp @cost:9
 RemoteGraphicsContextGLMessageReceiver.cpp @cost:13

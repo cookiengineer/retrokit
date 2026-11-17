@@ -138,9 +138,6 @@ public:
 #if ENABLE(MEDIA_SOURCE)
     void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) override;
 #endif
-#if ENABLE(MEDIA_STREAM)
-    void load(MediaStreamPrivate&) override;
-#endif
     bool isMediaStreamPlayer() const;
     void cancelLoad() final;
     void prepareToPlay() final;
@@ -623,9 +620,6 @@ private:
     mutable unsigned long long m_totalBytes { 0 };
     bool m_shouldPreservePitch { false };
     bool m_isLegacyPlaybin;
-#if ENABLE(MEDIA_STREAM)
-    RefPtr<MediaStreamPrivate> m_streamPrivate;
-#endif
 
     // Only notifyPlayerOfMute uses this to avoid sending redundant notifications.
     // Since it's updated by a callback, this will be incorrect right after un/muting the player,
@@ -672,9 +666,6 @@ private:
 
 private:
     std::optional<VideoFrameMetadata> videoFrameMetadata() final;
-#if ENABLE(MEDIA_STREAM)
-    std::pair<String, GRefPtr<GstDevice>> resolveAudioOutputDevice(const String& deviceId);
-#endif
     bool applyAudioSinkDevice(GstElement* audioSink, const GRefPtr<GstDevice>&, const String& deviceId);
 
     uint64_t m_sampleCount { 0 };

@@ -41,7 +41,6 @@
 #include "RemotePageScreenOrientationManagerProxy.h"
 #include "RemotePageVisitedLinkStoreRegistration.h"
 #include "RemotePageWebAuthenticatorCoordinatorProxy.h"
-#include "UserMediaProcessManager.h"
 #include "WebAuthenticatorCoordinatorProxy.h"
 #include "WebBackForwardList.h"
 #include "WebBackForwardListMessages.h"
@@ -285,10 +284,6 @@ WebProcessActivityState& RemotePageProxy::processActivityState()
 
 void RemotePageProxy::isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags newState)
 {
-#if ENABLE(MEDIA_STREAM)
-    bool didStopAudioCapture = m_mediaState.containsAny(WebCore::MediaProducer::IsCapturingAudioMask) && !newState.containsAny(WebCore::MediaProducer::IsCapturingAudioMask);
-    bool didStopVideoCapture = m_mediaState.containsAny(WebCore::MediaProducer::IsCapturingVideoMask) && !newState.containsAny(WebCore::MediaProducer::IsCapturingVideoMask);
-#endif
 
     m_mediaState = newState;
 
@@ -298,10 +293,6 @@ void RemotePageProxy::isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFl
 
     page->updatePlayingMediaDidChange(WebPageProxy::CanDelayNotification::Yes);
 
-#if ENABLE(MEDIA_STREAM)
-    if (didStopAudioCapture || didStopVideoCapture)
-        UserMediaProcessManager::singleton().revokeSandboxExtensionsIfNeeded(m_process);
-#endif
 }
 
 void RemotePageProxy::setNetworkRequestsInProgress(bool hasNetworkRequestsInProgress)

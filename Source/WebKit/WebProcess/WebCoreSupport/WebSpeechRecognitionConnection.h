@@ -54,9 +54,6 @@ public:
     void start(WebCore::SpeechRecognitionConnectionClientIdentifier, const String& lang, bool continuous, bool interimResults, uint64_t maxAlternatives, WebCore::ClientOrigin&&, WebCore::FrameIdentifier) final;
     void stop(WebCore::SpeechRecognitionConnectionClientIdentifier) final;
     void abort(WebCore::SpeechRecognitionConnectionClientIdentifier) final;
-#if ENABLE(MEDIA_STREAM)
-    void dispatchCaptureSourceCreated(WebCore::SpeechRecognitionConnectionClientIdentifier, WebCore::RealtimeMediaSource&) final;
-#endif
 
 private:
     explicit WebSpeechRecognitionConnection(SpeechRecognitionConnectionIdentifier);

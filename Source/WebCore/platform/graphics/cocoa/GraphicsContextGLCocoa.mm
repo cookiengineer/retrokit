@@ -57,9 +57,6 @@
 #import "VideoFrameCV.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#import "ImageRotationSessionVT.h"
-#endif
 
 // FIXME: Checking for EGL_Initialize does not seem to be robust in recovery OS.
 WTF_WEAK_LINK_FORCE_IMPORT(EGL_GetPlatformDisplayEXT);
@@ -579,36 +576,6 @@ RefPtr<PixelBuffer> GraphicsContextGLCocoa::readCompositedResults()
     return result;
 }
 
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-
-RefPtr<VideoFrame> GraphicsContextGLCocoa::surfaceBufferToVideoFrame(SurfaceBuffer buffer)
-{
-    if (buffer == SurfaceBuffer::DrawingBuffer) {
-        if (!makeContextCurrent())
-            return nullptr;
-        prepareTexture();
-        waitUntilWorkScheduled();
-    }
-
-    auto& source = surfaceBuffer(buffer);
-    if (!source || source.size() != getInternalFramebufferSize())
-        return nullptr;
-    // We will mirror and rotate the buffer explicitly. Thus the source being used is always a new one.
-    auto pixelBuffer = createCVPixelBuffer(protect(source.surface()->surface()).get());
-    if (!pixelBuffer)
-        return nullptr;
-    // Mirror and rotate the pixel buffer explicitly, as WebRTC encoders cannot mirror.
-    auto size = getInternalFramebufferSize();
-    if (!m_mediaSampleRotationSession || m_mediaSampleRotationSessionSize != size)
-        m_mediaSampleRotationSession = makeUnique<ImageRotationSessionVT>(ImageRotationSessionVT::RotationProperties { true, false, 180 }, size, ImageRotationSessionVT::IsCGImageCompatible::No);
-    auto mediaSamplePixelBuffer = m_mediaSampleRotationSession->rotate(pixelBuffer->get());
-    if (!mediaSamplePixelBuffer)
-        return nullptr;
-    if (m_resourceOwner)
-        setOwnershipIdentityForCVPixelBuffer(mediaSamplePixelBuffer.get(), m_resourceOwner);
-    return VideoFrameCV::create({ }, false, VideoFrame::Rotation::None, WTF::move(mediaSamplePixelBuffer));
-}
-#endif
 
 void GraphicsContextGLANGLE::platformReleaseThreadResources()
 {

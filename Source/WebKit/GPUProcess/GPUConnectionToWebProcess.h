@@ -51,9 +51,6 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-#include "SampleBufferDisplayLayerIdentifier.h"
-#endif
 
 #if ENABLE(WEBGL)
 #include "RemoteGraphicsContextGLIdentifier.h"
@@ -74,6 +71,8 @@
 
 #if ENABLE(IPC_TESTING_API)
 #include "IPCTester.h"
+#include "SampleBufferDisplayLayer.h"
+#include "SampleBufferDisplayLayerManager.h"
 #endif
 
 #if ENABLE(LINEAR_MEDIA_PLAYER)
@@ -188,25 +187,8 @@ public:
     const String& NODELETE mediaKeysStorageDirectory() const LIFETIME_BOUND;
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    void setOrientationForMediaCapture(WebCore::IntDegrees);
-    void rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
-    void startMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
-    void stopMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
-    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture);
-    void updateCaptureOrigin(const WebCore::SecurityOriginData&);
-    bool NODELETE setCaptureAttributionString();
-    bool allowsAudioCapture() const { return m_allowsAudioCapture; }
-    bool allowsVideoCapture() const { return m_allowsVideoCapture; }
-    bool allowsDisplayCapture() const { return m_allowsDisplayCapture; }
-#endif
 #if ENABLE(VIDEO)
     RemoteVideoFrameObjectHeap& NODELETE videoFrameObjectHeap() const;
-#endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    void startCapturingAudio();
-    void processIsStartingToCaptureAudio(GPUConnectionToWebProcess&);
-    bool isLastToCaptureAudio() const { return m_isLastToCaptureAudio; }
 #endif
 
 #if ENABLE(APP_PRIVACY_REPORT)
@@ -289,10 +271,6 @@ private:
 #if ENABLE(WEB_AUDIO)
     RemoteAudioDestinationManager& remoteAudioDestinationManager();
 #endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    UserMediaCaptureManagerProxy& userMediaCaptureManagerProxy();
-    RemoteAudioMediaStreamTrackRendererInternalUnitManager& audioMediaStreamTrackRendererInternalUnitManager();
-#endif
 
     void createRenderingBackend(RemoteRenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
     void releaseRenderingBackend(RemoteRenderingBackendIdentifier);
@@ -308,9 +286,6 @@ private:
     void clearNowPlayingInfo();
     void setNowPlayingInfo(WebCore::NowPlayingInfo&&);
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    void updateSampleBufferDisplayLayerBoundsAndPosition(WebKit::SampleBufferDisplayLayerIdentifier, WebCore::FloatRect, std::optional<WTF::MachSendRightAnnotated>&&);
-#endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
     void createVisibilityPropagationContextForPage(WebPageProxyIdentifier, WebCore::PageIdentifier, bool canShowWhileLocked);
@@ -377,20 +352,7 @@ private:
     const LazyUniqueRef<GPUConnectionToWebProcess, VideoReceiverEndpointManager> m_videoReceiverEndpointManager;
 #endif
     PAL::SessionID m_sessionID;
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    RefPtr<UserMediaCaptureManagerProxy> m_userMediaCaptureManagerProxy;
-    const std::unique_ptr<RemoteAudioMediaStreamTrackRendererInternalUnitManager> m_audioMediaStreamTrackRendererInternalUnitManager;
-    bool m_isLastToCaptureAudio { false };
 
-    const Ref<RemoteSampleBufferDisplayLayerManager> m_sampleBufferDisplayLayerManager;
-#endif
-
-#if ENABLE(MEDIA_STREAM)
-    Ref<WebCore::SecurityOrigin> m_captureOrigin;
-    bool m_allowsAudioCapture { false };
-    bool m_allowsVideoCapture { false };
-    bool m_allowsDisplayCapture { false };
-#endif
 #if ENABLE(VIDEO)
     IPC::ScopedActiveMessageReceiveQueue<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
 #endif

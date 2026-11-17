@@ -122,8 +122,7 @@ private:
     ScriptExecutionContextIdentifier loaderContextIdentifier() const final;
     RefPtr<CacheStorageConnection> createCacheStorageConnection() final;
     RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() final;
-    RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
-    RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
+        RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
 
     // WorkerDebuggerProxy
     void postMessageToDebugger(const String&) final;

@@ -40,7 +40,6 @@
 #include "ImageBufferResourceLimits.h"
 #include "NowPlayingInfo.h"
 #include "OrientationNotifier.h"
-#include "RealtimeMediaSource.h"
 #include "RenderingMode.h"
 #include "ResourceMonitorChecker.h"
 #include "SleepDisabler.h"
@@ -208,9 +207,6 @@ class Internals final
 #endif
     {
     WTF_MAKE_TZONE_ALLOCATED(Internals);
-    #if ENABLE(MEDIA_STREAM)
-        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Internals);
-    #endif
     public:
     static Ref<Internals> create(Document&);
     virtual ~Internals();
@@ -1011,32 +1007,7 @@ class Internals final
         unsigned NODELETE minimumExpectedVoiceCount();
     #endif
 
-    #if ENABLE(MEDIA_STREAM)
-        void NODELETE setShouldInterruptAudioOnPageVisibilityChange(bool);
-    #endif
-    #if ENABLE(MEDIA_RECORDER)
-        void NODELETE setCustomPrivateRecorderCreator();
-    #endif
 
-    #if ENABLE(WEB_RTC)
-        void emulateRTCPeerConnectionPlatformEvent(RTCPeerConnection&, const String& action);
-        void useMockRTCPeerConnectionFactory(const String&);
-        void setICECandidateFiltering(bool);
-        void NODELETE setEnumeratingAllNetworkInterfacesEnabled(bool);
-        void stopPeerConnection(RTCPeerConnection&);
-        void clearPeerConnectionFactory();
-        void clearWebRTCCodecsConnection();
-        void applyRotationForOutgoingVideoSources(RTCPeerConnection&);
-        void setWebRTCH265Support(bool);
-        void setWebRTCVP9Support(bool supportVP9Profile0, bool supportVP9Profile2);
-        void disableWebRTCHardwareVP9();
-        bool isSupportingVP9HardwareDecoder() const;
-        void isVP9HardwareDecoderUsed(RTCPeerConnection&, DOMPromiseDeferred<IDLBoolean>&&);
-        bool isSupportingAV1HardwareDecoder() const;
-
-        void NODELETE setEnableWebRTCEncryption(bool);
-        bool hasPeerConnectionEnabledServiceClass(const RTCPeerConnection&);
-    #endif
 
     String getImageSourceURL(Element&);
 
@@ -1271,33 +1242,6 @@ class Internals final
     void setPageIsInWindow(bool);
     bool NODELETE isPageActive() const;
 
-    #if ENABLE(MEDIA_STREAM)
-        void stopObservingRealtimeMediaSource();
-
-        void setMockAudioTrackChannelNumber(MediaStreamTrack&, unsigned short);
-        void setCameraMediaStreamTrackOrientation(MediaStreamTrack&, int orientation);
-        unsigned long trackAudioSampleCount() const { return m_trackAudioSampleCount; }
-        unsigned long trackVideoSampleCount() const { return m_trackVideoSampleCount; }
-        void observeMediaStreamTrack(MediaStreamTrack&);
-        void mediaStreamTrackVideoFrameRotation(DOMPromiseDeferred<IDLShort>&&);
-        void delayMediaStreamTrackSamples(MediaStreamTrack&, float);
-        void setMediaStreamTrackMuted(MediaStreamTrack&, bool);
-        void removeMediaStreamTrack(MediaStream&, MediaStreamTrack&);
-        void simulateMediaStreamTrackCaptureSourceFailure(MediaStreamTrack&);
-        void setMediaStreamTrackIdentifier(MediaStreamTrack&, String&& id);
-        void setMediaStreamSourceInterrupted(MediaStreamTrack&, bool);
-        const String& NODELETE mediaStreamTrackPersistentId(const MediaStreamTrack&);
-        size_t audioCaptureSourceCount() const;
-        bool NODELETE supportsMultiMicrophoneCaptureWithoutEchoCancellation() const;
-        bool isMediaStreamSourceInterrupted(MediaStreamTrack&) const;
-        bool NODELETE isMediaStreamSourceEnded(MediaStreamTrack&) const;
-        bool NODELETE isMockRealtimeMediaSourceCenterEnabled();
-        bool NODELETE shouldAudioTrackPlay(const AudioTrack&);
-        void deleteAudioUnit();
-    #endif // ENABLE(MEDIA_STREAM)
-    #if ENABLE(WEB_RTC)
-        String rtcNetworkInterfaceName() const;
-    #endif
 
     bool NODELETE isHardwareVP9DecoderExpected();
 
@@ -1667,14 +1611,6 @@ class Internals final
     private:
     explicit Internals(Document&);
 
-    #if ENABLE(MEDIA_STREAM)
-        // CheckedPtr interface
-        uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
-        uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
-        void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
-        void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
-        void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
-    #endif // ENABLE(MEDIA_STREAM)
 
     Document* NODELETE contextDocument() const;
     LocalFrame* NODELETE frame() const;
@@ -1702,18 +1638,6 @@ class Internals final
 
     RefPtr<MediaSessionManagerInterface> sessionManager() const;
 
-    #if ENABLE(MEDIA_STREAM)
-        // RealtimeMediaSourceObserver API
-        void videoFrameAvailable(VideoFrame&, VideoFrameTimeMetadata) final;
-        // RealtimeMediaSource::AudioSampleObserver API
-        void audioSamplesAvailable(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final { m_trackAudioSampleCount++; }
-
-        OrientationNotifier m_orientationNotifier;
-        unsigned long m_trackVideoSampleCount { 0 };
-        unsigned long m_trackAudioSampleCount { 0 };
-        RefPtr<RealtimeMediaSource> m_trackSource;
-        int m_trackVideoRotation { 0 };
-    #endif
     #if ENABLE(MEDIA_SESSION) && ENABLE(WEB_CODECS)
         RefPtr<ArtworkImageLoader> m_artworkLoader;
         std::unique_ptr<ArtworkImagePromise> m_artworkImagePromise;

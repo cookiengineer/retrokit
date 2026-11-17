@@ -60,7 +60,6 @@ set(_webkit_c_api_headers
     UIProcess/API/C/WKLayoutMode.h
     UIProcess/API/C/WKMediaKeySystemPermissionCallback.h
     UIProcess/API/C/WKMessageListener.h
-    UIProcess/API/C/WKMockMediaDevice.h
     UIProcess/API/C/WKNativeEvent.h
     UIProcess/API/C/WKNavigationActionRef.h
     UIProcess/API/C/WKNavigationDataRef.h
@@ -104,7 +103,6 @@ set(_webkit_c_api_headers
     UIProcess/API/C/WKTextChecker.h
     UIProcess/API/C/WKUserContentControllerRef.h
     UIProcess/API/C/WKUserContentExtensionStoreRef.h
-    UIProcess/API/C/WKUserMediaPermissionRequest.h
     UIProcess/API/C/WKUserScriptRef.h
     UIProcess/API/C/WKViewportAttributes.h
     UIProcess/API/C/WKWebsiteDataStoreConfigurationRef.h

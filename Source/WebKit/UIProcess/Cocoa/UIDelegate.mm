@@ -39,8 +39,6 @@
 #import "NativeWebWheelEvent.h"
 #import "NavigationActionData.h"
 #import "PageLoadState.h"
-#import "UserMediaPermissionRequestManagerProxy.h"
-#import "UserMediaPermissionRequestProxy.h"
 #import "WKFrameInfoInternal.h"
 #import "WKNSData.h"
 #import "WKNSDictionary.h"
@@ -1200,114 +1198,6 @@ void UIDelegate::UIClient::callDisplayCapturePermissionDelegate(WebPageProxy& pa
     [delegate _webView:uiDelegate->m_webView.get().get() requestDisplayCapturePermissionForOrigin:protect(wrapper(topLevelOrigin)).get() initiatedByFrame:frameInfoWrapper.get() withSystemAudio:requestSystemAudio decisionHandler:decisionHandler.get()];
 
 }
-void UIDelegate::UIClient::decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaOrigin, API::SecurityOrigin& topLevelOrigin, UserMediaPermissionRequestProxy& request)
-{
-#if ENABLE(MEDIA_STREAM)
-    RefPtr uiDelegate = m_uiDelegate.get();
-    if (!uiDelegate)
-        return;
-
-    RetainPtr delegate = uiDelegatePrivate();
-    if (!delegate) {
-        ensureOnMainRunLoop([protectedRequest = Ref { request }]() {
-            protectedRequest->doDefaultAction();
-        });
-        return;
-    }
-
-    if (request.requiresDisplayCapture()) {
-        bool respondsToRequestDisplayCapturePermission = [delegate respondsToSelector:@selector(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)];
-        if (!respondsToRequestDisplayCapturePermission || request.canRequestDisplayCapturePermission()) {
-            request.promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::UserChoose);
-            return;
-        }
-
-        callDisplayCapturePermissionDelegate(page, frame, FrameInfoData { request.frameInfo() }, userMediaOrigin, topLevelOrigin, request);
-        return;
-    }
-
-    bool respondsToRequestMediaCapturePermission = [delegate respondsToSelector:@selector(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:)];
-    bool respondsToRequestUserMediaAuthorizationForDevices = [delegate respondsToSelector:@selector(_webView:requestUserMediaAuthorizationForDevices:url:mainFrameURL:decisionHandler:)];
-
-    if (!respondsToRequestMediaCapturePermission && !respondsToRequestUserMediaAuthorizationForDevices) {
-        ensureOnMainRunLoop([protectedRequest = Ref { request }]() {
-            protectedRequest->doDefaultAction();
-        });
-        return;
-    }
-
-    ASSERT(!request.requiresDisplayCapture());
-    if (respondsToRequestMediaCapturePermission) {
-        auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:));
-        auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTF::move(checker)](WKPermissionDecision decision) mutable {
-            if (checker->completionHandlerHasBeenCalled())
-                return;
-            checker->didCallCompletionHandler();
-
-            ensureOnMainRunLoop([protectedRequest = WTF::move(protectedRequest), decision] {
-                switch (decision) {
-                case WKPermissionDecisionPrompt:
-                    protectedRequest->promptForGetUserMedia();
-                    break;
-                case WKPermissionDecisionGrant: {
-                    const String& videoDeviceUID = protectedRequest->requiresVideoCapture() ? protectedRequest->videoDeviceUIDs().first() : String();
-                    const String& audioDeviceUID = protectedRequest->requiresAudioCapture() ? protectedRequest->audioDeviceUIDs().first() : String();
-                    protectedRequest->allow(audioDeviceUID, videoDeviceUID);
-                    break;
-                }
-                case WKPermissionDecisionDeny:
-                    protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
-                    break;
-                }
-            });
-        });
-
-        std::optional<WebCore::FrameIdentifier> mainFrameID;
-        if (auto* mainFrame = frame.page() ? frame.page()->mainFrame() : nullptr)
-            mainFrameID = mainFrame->frameID();
-        RetainPtr<WKFrameInfo> frameInfoWrapper = wrapper(API::FrameInfo::create(FrameInfoData { request.frameInfo() }));
-
-        WKMediaCaptureType type = WKMediaCaptureTypeCamera;
-        if (request.requiresAudioCapture())
-            type = request.requiresVideoCapture() ? WKMediaCaptureTypeCameraAndMicrophone : WKMediaCaptureTypeMicrophone;
-        [delegate webView:uiDelegate->m_webView.get().get() requestMediaCapturePermissionForOrigin:protect(wrapper(topLevelOrigin)).get() initiatedByFrame:frameInfoWrapper.get() type:type decisionHandler:decisionHandler.get()];
-        return;
-    }
-
-    if (!respondsToRequestUserMediaAuthorizationForDevices) {
-        ensureOnMainRunLoop([protectedRequest = Ref { request }]() {
-            protectedRequest->doDefaultAction();
-        });
-        return;
-    }
-
-    URL requestFrameURL { frame.url() };
-    URL mainFrameURL { frame.page()->mainFrame()->url() };
-
-    _WKCaptureDevices devices = 0;
-    if (request.requiresAudioCapture())
-        devices |= _WKCaptureDeviceMicrophone;
-    if (request.requiresVideoCapture())
-        devices |= _WKCaptureDeviceCamera;
-
-    auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(_webView:requestUserMediaAuthorizationForDevices:url:mainFrameURL:decisionHandler:));
-    auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTF::move(checker)](BOOL authorized) {
-        if (checker->completionHandlerHasBeenCalled())
-            return;
-        checker->didCallCompletionHandler();
-
-        if (!authorized) {
-            protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
-            return;
-        }
-        const String& videoDeviceUID = protectedRequest->requiresVideoCapture() ? protectedRequest->videoDeviceUIDs().first() : String();
-        const String& audioDeviceUID = protectedRequest->requiresAudioCapture() ? protectedRequest->audioDeviceUIDs().first() : String();
-        protectedRequest->allow(audioDeviceUID, videoDeviceUID);
-    });
-    [delegate _webView:uiDelegate->m_webView.get().get() requestUserMediaAuthorizationForDevices:devices url:requestFrameURL.createNSURL().get() mainFrameURL:mainFrameURL.createNSURL().get() decisionHandler:decisionHandler.get()];
-#endif
-}
-
 void UIDelegate::UIClient::decidePolicyForScreenCaptureUnmuting(WebPageProxy& page, WebFrameProxy& frame, FrameInfoData&& frameInfo, API::SecurityOrigin& userMediaOrigin, API::SecurityOrigin& topLevelOrigin, CompletionHandler<void(bool isAllowed)>&& completionHandler)
 {
     RefPtr uiDelegate = m_uiDelegate.get();

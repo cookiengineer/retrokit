@@ -31,10 +31,6 @@
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "GStreamerAudioStreamDescription.h"
-#include "MediaStreamTrackPrivate.h"
-#endif
 
 typedef struct _GstAdapter GstAdapter;
 typedef struct _GstAppSink GstAppSink;
@@ -48,13 +44,6 @@ public:
         return adoptRef(*new AudioSourceProviderGStreamer());
     }
 
-#if ENABLE(MEDIA_STREAM)
-    static Ref<AudioSourceProviderGStreamer> create(MediaStreamTrackPrivate& source)
-    {
-        return adoptRef(*new AudioSourceProviderGStreamer(source));
-    }
-    AudioSourceProviderGStreamer(MediaStreamTrackPrivate&);
-#endif
 
     void configureAudioBin(GstElement* audioBin, GstElement* audioSink);
 
@@ -78,11 +67,6 @@ private:
 
     void determineSampleRate(const GstCaps*);
 
-#if ENABLE(MEDIA_STREAM)
-    WeakPtr<MediaStreamTrackPrivate> m_captureSource;
-    RefPtr<MediaStreamPrivate> m_streamPrivate;
-    GRefPtr<GstElement> m_pipeline;
-#endif
     enum MainThreadNotification {
         DeinterleavePadsConfigured = 1 << 0,
     };

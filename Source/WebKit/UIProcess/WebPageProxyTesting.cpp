@@ -42,9 +42,6 @@
 #include <wtf/CallbackAggregator.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-#include "DisplayCaptureSessionManager.h"
-#endif
 
 namespace WebKit {
 using namespace WebCore;
@@ -209,17 +206,6 @@ void WebPageProxyTesting::waitForWheelEventsToCompleteForTesting(CompletionHandl
     sendWithAsyncReply(Messages::WebPageTesting::WaitForWheelEventsToCompleteForTesting(), WTF::move(completionHandler));
 }
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-void WebPageProxyTesting::setIndexOfGetDisplayMediaDeviceSelectedForTesting(std::optional<unsigned> index)
-{
-    DisplayCaptureSessionManager::singleton().setIndexOfDeviceSelectedForTesting(index);
-}
-
-void WebPageProxyTesting::setSystemCanPromptForGetDisplayMediaForTesting(bool canPrompt)
-{
-    DisplayCaptureSessionManager::singleton().setSystemCanPromptForTesting(canPrompt);
-}
-#endif
 
 void WebPageProxyTesting::setObscuredContentInsets(float top, float right, float bottom, float left, CompletionHandler<void()>&& completionHandler)
 {

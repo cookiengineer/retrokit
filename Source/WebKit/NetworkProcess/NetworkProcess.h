@@ -440,9 +440,6 @@ public:
     String containerTemporaryDirectory() const { return m_containerTemporaryDirectory; }
 #endif
 
-#if ENABLE(WEB_RTC)
-    RTCDataChannelRemoteManagerProxy& rtcDataChannelProxy();
-#endif
 
     void getPendingPushMessage(PAL::SessionID, CompletionHandler<void(const std::optional<WebPushMessage>&)>&&);
     void getPendingPushMessages(PAL::SessionID, CompletionHandler<void(const Vector<WebPushMessage>&)>&&);
@@ -673,9 +670,6 @@ private:
     RefPtr<ProcessAssertion> m_holdingLockedFileAssertion;
 #endif
     
-#if ENABLE(WEB_RTC)
-    RefPtr<RTCDataChannelRemoteManagerProxy> m_rtcDataChannelProxy;
-#endif
 
     OptionSet<NetworkCache::CacheOption> m_cacheOptions;
     WebCore::MessagePortChannelRegistry m_messagePortChannelRegistry;

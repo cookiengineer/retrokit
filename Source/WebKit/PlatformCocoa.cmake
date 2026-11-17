@@ -53,10 +53,6 @@ list(APPEND WebKit_SOURCES
     NetworkProcess/cocoa/LaunchServicesDatabaseObserver.mm
     NetworkProcess/cocoa/WebSocketTaskCocoa.mm
 
-    NetworkProcess/webrtc/NetworkRTCProvider.cpp
-    NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm
-    NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
-    NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm
 
     Platform/IPC/cocoa/SharedFileHandleCocoa.cpp
 
@@ -100,7 +96,6 @@ list(APPEND WebKit_SOURCES
 # FIXME: Add the remaining `${WEBKIT_DIR}/UIProcess/API/Swift/` files once CMake has proper framework directories.
 
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
-    "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
     "${WEBKIT_DIR}/GPUProcess/graphics/Model"
     "${WEBKIT_DIR}/GPUProcess/media/cocoa"
     "${WEBKIT_DIR}/NetworkProcess/cocoa"
@@ -176,7 +171,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/WebCoreSupport/cocoa"
     "${WEBKIT_DIR}/webpushd"
     "${WEBKIT_DIR}/webpushd/webpushtool"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
 )
 
 # FIXME: These should not have Development in production builds.
@@ -209,7 +203,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 
     GPUProcess/media/ios/RemoteMediaSessionHelperProxy
 
-    GPUProcess/webrtc/UserMediaCaptureManagerProxy
 
     ModelProcess/cocoa/ModelProcessModelPlayerProxy
 
@@ -254,7 +247,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 
     WebProcess/cocoa/PlaybackSessionManager
     WebProcess/cocoa/RemoteCaptureSampleManager
-    WebProcess/cocoa/UserMediaCaptureManager
     WebProcess/cocoa/VideoPresentationManager
 )
 

@@ -28,11 +28,9 @@
 
 #include "APIFrameHandle.h"
 #include "APIPageHandle.h"
-#include "AudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "AuxiliaryProcessMessages.h"
 #include "EventDispatcher.h"
 #include "InjectedBundle.h"
-#include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "ModelProcessModelPlayerManager.h"
@@ -121,7 +119,6 @@
 #include <WebCore/MemoryCache.h>
 #include <WebCore/MemoryRelease.h>
 #include <WebCore/MessagePort.h>
-#include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Notification.h>
 #include <WebCore/Page.h>
@@ -169,9 +166,6 @@
 #include <unistd.h>
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include "UserMediaCaptureManager.h"
-#endif
 
 #if USE(CG)
 #include <WebCore/ImageDecoderCG.h>
@@ -208,7 +202,6 @@
 #endif
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
-#include "LibWebRTCCodecs.h"
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -259,7 +252,6 @@
 #endif
 
 #if USE(LIBRICE)
-#include "RiceBackendProxy.h"
 #endif
 
 #if PLATFORM(MAC)
@@ -326,12 +318,6 @@ WebNotificationManager& WebProcess::notificationManager()
     return *supplement<WebNotificationManager>();
 }
 
-#if ENABLE(MEDIA_STREAM)
-UserMediaCaptureManager& WebProcess::userMediaCaptureManager()
-{
-    return *supplement<UserMediaCaptureManager>();
-}
-#endif
 
 WebProcess::WebProcess()
     : m_eventDispatcher(*this)
@@ -379,9 +365,6 @@ WebProcess::WebProcess()
     addSupplement<WebMediaKeyStorageManager>();
 #endif
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    addSupplementWithoutRefCountedCheck<UserMediaCaptureManager>();
-#endif
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
     addSupplementWithoutRefCountedCheck<RemoteCDMFactory>();
@@ -1521,10 +1504,6 @@ void WebProcess::gpuProcessConnectionClosed()
     for (auto& page : m_pageMap.values())
         page->gpuProcessConnectionWasDestroyed();
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    if (m_audioMediaStreamTrackRendererInternalUnitManager)
-        m_audioMediaStreamTrackRendererInternalUnitManager->restartAllUnits();
-#endif
 }
 
 void WebProcess::gpuProcessConnectionDidBecomeUnresponsive()
@@ -1542,14 +1521,6 @@ LibWebRTCCodecs& WebProcess::libWebRTCCodecs()
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-AudioMediaStreamTrackRendererInternalUnitManager& WebProcess::audioMediaStreamTrackRendererInternalUnitManager()
-{
-    if (!m_audioMediaStreamTrackRendererInternalUnitManager)
-        m_audioMediaStreamTrackRendererInternalUnitManager = makeUnique<AudioMediaStreamTrackRendererInternalUnitManager>();
-    return *m_audioMediaStreamTrackRendererInternalUnitManager;
-}
-#endif
 
 #endif // ENABLE(GPU_PROCESS)
 
@@ -2223,82 +2194,6 @@ bool WebProcess::unregisterServiceWorker(WebCore::ServiceWorkerIdentifier identi
     return m_swServiceWorkerCounts.remove(identifier);
 }
 
-#if ENABLE(MEDIA_STREAM)
-void WebProcess::addMockMediaDevice(const WebCore::MockMediaDevice& device)
-{
-    MockRealtimeMediaSourceCenter::addDevice(device);
-}
-
-void WebProcess::clearMockMediaDevices()
-{
-    MockRealtimeMediaSourceCenter::setDevices({ });
-}
-
-void WebProcess::removeMockMediaDevice(const String& persistentId)
-{
-    MockRealtimeMediaSourceCenter::removeDevice(persistentId);
-}
-
-void WebProcess::setMockMediaDeviceIsEphemeral(const String& persistentId, bool isEphemeral)
-{
-    MockRealtimeMediaSourceCenter::setDeviceIsEphemeral(persistentId, isEphemeral);
-}
-
-void WebProcess::resetMockMediaDevices()
-{
-    MockRealtimeMediaSourceCenter::resetDevices();
-}
-
-#if ENABLE(SANDBOX_EXTENSIONS)
-void WebProcess::grantUserMediaDeviceSandboxExtensions(MediaDeviceSandboxExtensions&& extensions)
-{
-    for (size_t i = 0; i < extensions.size(); i++) {
-        auto extensionID = extensions[i].first;
-        Ref sandboxExtension = extensions[i].second;
-        sandboxExtension->consume();
-        WEBPROCESS_RELEASE_LOG(WebRTC, "grantUserMediaDeviceSandboxExtensions: granted extension %s", extensionID.utf8().data());
-        m_mediaCaptureSandboxExtensions.add(extensionID, WTF::move(sandboxExtension));
-    }
-    m_machBootstrapExtension = extensions.machBootstrapExtension();
-    if (RefPtr machBootstrapExtension = m_machBootstrapExtension)
-        machBootstrapExtension->consume();
-}
-
-static inline void NODELETE checkDocumentsCaptureStateConsistency(const Vector<String>& extensionIDs)
-{
-#if ASSERT_ENABLED
-    bool isCapturingAudio = std::ranges::any_of(Document::allDocumentsMap().values(), [](auto& document) {
-        return static_cast<bool>(document->mediaState() & MediaProducer::MicrophoneCaptureMask);
-    });
-    bool isCapturingVideo = std::ranges::any_of(Document::allDocumentsMap().values(), [](auto& document) {
-        return static_cast<bool>(document->mediaState() & MediaProducer::VideoCaptureMask);
-    });
-
-    if (isCapturingAudio)
-        ASSERT(!extensionIDs.containsIf([](auto& id) { return id.contains("microphone"_s); }));
-    if (isCapturingVideo)
-        ASSERT(!extensionIDs.containsIf([](auto& id) { return id.contains("camera"_s); }));
-#endif // ASSERT_ENABLED
-}
-
-void WebProcess::revokeUserMediaDeviceSandboxExtensions(const Vector<String>& extensionIDs)
-{
-    checkDocumentsCaptureStateConsistency(extensionIDs);
-    
-    for (const auto& extensionID : extensionIDs) {
-        auto extension = m_mediaCaptureSandboxExtensions.take(extensionID);
-        ASSERT(extension || MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled());
-        if (extension) {
-            extension->revoke();
-            WEBPROCESS_RELEASE_LOG(WebRTC, "revokeUserMediaDeviceSandboxExtensions: revoked extension %s", extensionID.utf8().data());
-        }
-    }
-    
-    if (RefPtr machBootstrapExtension = m_machBootstrapExtension)
-        machBootstrapExtension->revoke();
-}
-#endif
-#endif
 
 #if ENABLE(VIDEO)
 void WebProcess::suspendAllMediaBuffering()
@@ -2544,15 +2439,6 @@ bool WebProcess::shouldUseRemoteRenderingForWebGL() const
 
 #endif // ENABLE(GPU_PROCESS)
 
-#if ENABLE(MEDIA_STREAM)
-SpeechRecognitionRealtimeMediaSourceManager& WebProcess::ensureSpeechRecognitionRealtimeMediaSourceManager()
-{
-    if (!m_speechRecognitionRealtimeMediaSourceManager)
-        lazyInitialize(m_speechRecognitionRealtimeMediaSourceManager, makeUniqueWithoutRefCountedCheck<SpeechRecognitionRealtimeMediaSourceManager>(*this));
-
-    return *m_speechRecognitionRealtimeMediaSourceManager;
-}
-#endif
 
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
 RemoteLegacyCDMFactory& WebProcess::legacyCDMFactory()

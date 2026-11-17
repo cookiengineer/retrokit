@@ -28,7 +28,6 @@
 
 #if ENABLE(COCOA_WEBM_PLAYER)
 
-#import "AudioMediaStreamTrackRenderer.h"
 #import "AudioTrackPrivateWebM.h"
 #import "AudioVideoRendererAVFObjC.h"
 #import "FloatSize.h"
@@ -68,6 +67,7 @@
 #pragma mark - Soft Linking
 #import "CoreVideoSoftLink.h"
 #import "VideoToolboxSoftLink.h"
+#include "SampleBufferDisplayLayer.h"
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
@@ -370,15 +370,6 @@ void MediaPlayerPrivateWebM::load(const URL&, const LoadOptions&, MediaSourcePri
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-void MediaPlayerPrivateWebM::load(MediaStreamPrivate&)
-{
-    assertIsMainThread();
-    ERROR_LOG(LOGIDENTIFIER, "tried to load as mediastream");
-
-    setNetworkState(MediaPlayer::NetworkState::FormatError);
-}
-#endif
 
 void MediaPlayerPrivateWebM::responseReceived(PlatformMediaResource& resource, const ResourceResponse& response)
 {

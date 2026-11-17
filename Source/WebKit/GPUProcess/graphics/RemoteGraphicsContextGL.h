@@ -35,7 +35,6 @@
 #include "RemoteSharedResourceCache.h"
 #include "ScopedWebGLRenderingResourcesRequest.h"
 #include "SharedPreferencesForWebProcess.h"
-#include "SharedVideoFrame.h"
 #include "StreamMessageReceiver.h"
 #include "StreamServerConnection.h"
 #include <WebCore/NotImplemented.h>
@@ -129,9 +128,6 @@ protected:
 #endif
     void getErrors(CompletionHandler<void(GCGLErrorCodeSet)>&&);
     void copyNativeImageYFlipped(WebCore::GraphicsContextGL::SurfaceBuffer, WebCore::RenderingResourceIdentifier);
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-    void surfaceBufferToVideoFrame(WebCore::GraphicsContextGL::SurfaceBuffer, CompletionHandler<void(std::optional<WebKit::RemoteVideoFrameProxy::Properties>&&)>&&);
-#endif
 #if ENABLE(VIDEO) && PLATFORM(COCOA)
     void copyTextureFromVideoFrame(SharedVideoFrame&&, PlatformGLObject texture, uint32_t target, int32_t level, uint32_t internalFormat, uint32_t format, uint32_t type, bool premultiplyAlpha, bool flipY, CompletionHandler<void(bool)>&&);
     void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
@@ -163,6 +159,7 @@ protected:
 #endif
 
 #include "RemoteGraphicsContextGLFunctionsGenerated.h" // NOLINT
+#include "SharedVideoFrame.h"
 
 protected:
     ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;

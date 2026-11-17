@@ -2144,22 +2144,6 @@ bool HTMLInputElement::matchesIndeterminatePseudoClass() const
     return m_inputType->matchesIndeterminatePseudoClass();
 }
 
-#if ENABLE(MEDIA_CAPTURE)
-MediaCaptureType HTMLInputElement::mediaCaptureType() const
-{
-    if (!isFileUpload())
-        return MediaCaptureType::MediaCaptureTypeNone;
-    
-    auto& captureAttribute = attributeWithoutSynchronization(captureAttr);
-    if (captureAttribute.isNull())
-        return MediaCaptureType::MediaCaptureTypeNone;
-    
-    if (equalLettersIgnoringASCIICase(captureAttribute, "user"_s))
-        return MediaCaptureType::MediaCaptureTypeUser;
-    
-    return MediaCaptureType::MediaCaptureTypeEnvironment;
-}
-#endif
 
 Vector<Ref<HTMLInputElement>> HTMLInputElement::radioButtonGroup() const
 {

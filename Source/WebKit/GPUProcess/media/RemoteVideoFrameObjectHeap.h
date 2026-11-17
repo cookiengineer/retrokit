@@ -30,9 +30,9 @@
 #include "RemoteVideoFrameProxy.h"
 #include "ThreadSafeObjectHeap.h"
 #include "WorkQueueMessageReceiver.h"
+#include "SharedVideoFrame.h"
 
 #if PLATFORM(COCOA)
-#include "SharedVideoFrame.h"
 #endif
 
 namespace WebCore {

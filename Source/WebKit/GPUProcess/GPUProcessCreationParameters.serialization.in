@@ -25,13 +25,6 @@
 [RValue, DebugDecodingFailure] struct WebKit::GPUProcessCreationParameters {
     WebKit::AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
 
-#if ENABLE(MEDIA_STREAM)
-    bool useMockCaptureDevices;
-#if PLATFORM(MAC)
-    WebKit::SandboxExtensionHandle microphoneSandboxExtensionHandle;
-    WebKit::SandboxExtensionHandle launchServicesExtensionHandle;
-#endif
-#endif
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     WebKit::SandboxExtensionHandle containerCachesDirectoryExtensionHandle;

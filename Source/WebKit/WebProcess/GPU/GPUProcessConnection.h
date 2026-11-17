@@ -27,7 +27,6 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "AudioMediaStreamTrackRendererInternalUnitIdentifier.h"
 #include "Connection.h"
 #include "GPUProcessConnectionIdentifier.h"
 #include "MediaOverridesForTesting.h"
@@ -36,6 +35,9 @@
 #include "RemoteRenderingBackendIdentifier.h"
 #include "StreamServerConnection.h"
 #include "WebGPUIdentifier.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
+#include "SampleBufferDisplayLayer.h"
+#include "SampleBufferDisplayLayerManager.h"
 #include <WebCore/AudioSession.h>
 #include <WebCore/PlatformMediaSession.h>
 #include <WebCore/SharedMemory.h>
@@ -89,10 +91,6 @@ public:
     std::optional<audit_token_t> auditToken();
 #endif
     Ref<RemoteSharedResourceCacheProxy> sharedResourceCache();
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    SampleBufferDisplayLayerManager& sampleBufferDisplayLayerManager() LIFETIME_BOUND;
-    void resetAudioMediaStreamTrackRendererInternalUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier);
-#endif
 #if ENABLE(VIDEO)
     RemoteVideoFrameObjectHeapProxy& videoFrameObjectHeapProxy();
     RemoteMediaPlayerManager& mediaPlayerManager();
@@ -166,9 +164,6 @@ private:
     RefPtr<RemoteSharedResourceCacheProxy> m_sharedResourceCache;
 #if HAVE(AUDIT_TOKEN)
     std::optional<audit_token_t> m_auditToken;
-#endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    const std::unique_ptr<SampleBufferDisplayLayerManager> m_sampleBufferDisplayLayerManager;
 #endif
 #if ENABLE(VIDEO)
     RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy;

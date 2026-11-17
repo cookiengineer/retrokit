@@ -150,7 +150,6 @@ private:
 #endif
         bool needsFontAttributes() const final { return m_uiDelegate && m_uiDelegate->m_delegateMethods.webViewDidChangeFontAttributes; }
         void didChangeFontAttributes(const WebCore::FontAttributes&) final;
-        void decidePolicyForUserMediaPermissionRequest(WebPageProxy&, WebFrameProxy&, API::SecurityOrigin&, API::SecurityOrigin&, UserMediaPermissionRequestProxy&) final;
         void decidePolicyForScreenCaptureUnmuting(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::FrameInfoData&&, API::SecurityOrigin&, API::SecurityOrigin&, CompletionHandler<void(bool isAllowed)>&&) final;
         void mediaCaptureStateDidChange(WebCore::MediaProducerMediaStateFlags) final;
         void callDisplayCapturePermissionDelegate(WebPageProxy&, WebFrameProxy&, FrameInfoData&&, API::SecurityOrigin&, API::SecurityOrigin&, UserMediaPermissionRequestProxy&);

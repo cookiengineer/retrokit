@@ -56,8 +56,6 @@ public:
     // Creates a cache storage connection to be used on the main thread. Method must be called on the main thread.
     virtual RefPtr<CacheStorageConnection> createCacheStorageConnection() = 0;
 
-    virtual RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() = 0;
-
     virtual RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() = 0;
 
     virtual RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() = 0;

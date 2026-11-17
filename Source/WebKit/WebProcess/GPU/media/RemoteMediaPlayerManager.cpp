@@ -33,9 +33,9 @@
 #include "RemoteMediaPlayerMIMETypeCache.h"
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include "RemoteMediaPlayerProxyConfiguration.h"
-#include "SampleBufferDisplayLayerManager.h"
 #include "WebProcess.h"
 #include "WebProcessCreationParameters.h"
+#include "SampleBufferDisplayLayer.h"
 #include <WebCore/ContentTypeUtilities.h>
 #include <WebCore/MediaPlayer.h>
 #include <wtf/HashFunctions.h>
@@ -256,16 +256,6 @@ void RemoteMediaPlayerManager::setUseGPUProcess(bool useGPUProcess)
 
     RemoteMediaPlayerSupport::setRegisterRemotePlayerCallback(useGPUProcess ? WTF::move(registerEngine) : RemoteMediaPlayerSupport::RegisterRemotePlayerCallback());
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    if (useGPUProcess) {
-        WebCore::SampleBufferDisplayLayer::setCreator([](auto& client) -> RefPtr<WebCore::SampleBufferDisplayLayer> {
-            return protect(WebProcess::singleton().ensureGPUProcessConnection())->sampleBufferDisplayLayerManager().createLayer(client);
-        });
-        WebCore::MediaPlayerPrivateMediaStreamAVFObjC::setNativeImageCreator([](auto& videoFrame) {
-            return protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy().getNativeImage(videoFrame);
-        });
-    }
-#endif
 }
 
 GPUProcessConnection& RemoteMediaPlayerManager::gpuProcessConnection()

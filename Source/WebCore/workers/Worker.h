@@ -83,9 +83,6 @@ public:
     void dispatchEvent(Event&) final;
     void reportError(const String&);
 
-#if ENABLE(WEB_RTC)
-    void createRTCRtpScriptTransformer(RTCRtpScriptTransform&, MessageWithMessagePorts&&);
-#endif
 
     WorkerType type() const { return m_options.type; }
 

@@ -30,11 +30,6 @@
 #include <wtf/glib/GThreadSafeWeakPtr.h>
 #include <wtf/text/MakeString.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "GStreamerAudioData.h"
-#include "GStreamerMediaStreamSource.h"
-#include "MediaStreamPrivate.h"
-#endif
 
 namespace WebCore {
 
@@ -110,84 +105,6 @@ void AudioSourceProviderGStreamer::initialize()
     m_providerId = makeString("webkit-audio-source-provider-"_s, nProvider.exchangeAdd(1)).ascii();
 }
 
-#if ENABLE(MEDIA_STREAM)
-AudioSourceProviderGStreamer::AudioSourceProviderGStreamer(MediaStreamTrackPrivate& source)
-    : m_captureSource(source)
-    , m_notifier(MainThreadNotifier<MainThreadNotification>::create())
-{
-    initialize();
-    registerWebKitGStreamerElements();
-
-    m_isLiveCapture = true;
-
-    auto pipelineNamePrefix = ""_s;
-    if (m_captureSource->source().isIncomingAudioSource())
-        pipelineNamePrefix = "incoming-"_s;
-
-    auto pipelineName = makeString(pipelineNamePrefix, "WebAudioProvider_MediaStreamTrack_"_s, source.id());
-    m_pipeline = gst_element_factory_make("pipeline", pipelineName.utf8().data());
-    registerActivePipeline(m_pipeline);
-    ASP_DEBUG("MediaStream WebAudio provider created");
-
-    m_streamPrivate = MediaStreamPrivate::create(Logger::create(this), { source });
-
-    m_audioSinkBin = gst_parse_bin_from_description("tee name=audioTee", true, nullptr);
-
-    auto* decodebin = makeGStreamerElement("uridecodebin3"_s);
-
-    g_signal_connect_swapped(decodebin, "source-setup", G_CALLBACK(+[](AudioSourceProviderGStreamer* provider, GstElement* sourceElement) {
-        if (!WEBKIT_IS_MEDIA_STREAM_SRC(sourceElement)) {
-            ASSERT_NOT_REACHED();
-            return;
-        }
-        webkitMediaStreamSrcSetStream(WEBKIT_MEDIA_STREAM_SRC(sourceElement), provider->m_streamPrivate.get(), false);
-    }), this);
-
-    g_signal_connect_swapped(decodebin, "pad-added", G_CALLBACK(+[](AudioSourceProviderGStreamer* provider, GstPad* pad) {
-        GRefPtr padCaps = adoptGRef(gst_pad_query_caps(pad, nullptr));
-        bool isAudio = doCapsHaveType(padCaps.get(), "audio"_s);
-        RELEASE_ASSERT(isAudio);
-
-        GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(provider->m_audioSinkBin.get(), "sink"));
-        gst_pad_link(pad, sinkPad.get());
-        gst_element_sync_state_with_parent(provider->m_audioSinkBin.get());
-    }), this);
-
-    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), decodebin, m_audioSinkBin.get(), nullptr);
-
-    connectSimpleBusMessageCallback(m_pipeline.get(), [weakDecodebin = GThreadSafeWeakPtr(decodebin)](auto message) mutable {
-        auto decodebin = weakDecodebin.get();
-        if (!decodebin)
-            return;
-
-        if (GST_MESSAGE_TYPE(message) != GST_MESSAGE_STREAM_COLLECTION)
-            return;
-
-        GRefPtr<GstStreamCollection> collection;
-        gst_message_parse_stream_collection(message, &collection.outPtr());
-        if (!collection)
-            return;
-
-        unsigned size = gst_stream_collection_get_size(collection.get());
-        GList* streams = nullptr;
-        for (unsigned i = 0; i < size; i++) {
-            auto* stream = gst_stream_collection_get_stream(collection.get(), i);
-            auto streamType = gst_stream_get_stream_type(stream);
-            if (streamType == GST_STREAM_TYPE_AUDIO) {
-                streams = g_list_append(streams, const_cast<char*>(gst_stream_get_stream_id(stream)));
-                break;
-            }
-        }
-        if (!streams)
-            return;
-
-        gst_element_send_event(decodebin.get(), gst_event_new_select_streams(streams));
-        g_list_free(streams);
-    });
-
-    g_object_set(decodebin, "uri", "mediastream://", nullptr);
-}
-#endif
 
 AudioSourceProviderGStreamer::~AudioSourceProviderGStreamer()
 {
@@ -201,13 +118,6 @@ AudioSourceProviderGStreamer::~AudioSourceProviderGStreamer()
     }
 
     setClient(nullptr);
-#if ENABLE(MEDIA_STREAM)
-    if (m_pipeline) {
-        disconnectSimpleBusMessageCallback(m_pipeline.get());
-        unregisterPipeline(m_pipeline);
-        gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
-    }
-#endif
     ASP_DEBUG("Disposing DONE");
 }
 
@@ -416,10 +326,6 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
 
     m_deinterleaveSourcePads = 0;
     clearAdapters();
-#if ENABLE(MEDIA_STREAM)
-    if (m_pipeline)
-        gst_element_set_state(m_pipeline.get(), m_client ? GST_STATE_PLAYING : GST_STATE_NULL);
-#endif
 }
 
 void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)

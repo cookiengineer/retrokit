@@ -28,8 +28,6 @@
 #include "Connection.h"
 #include "DownloadID.h"
 #include "NetworkActivityTracker.h"
-#include "NetworkMDNSRegister.h"
-#include "NetworkRTCProvider.h"
 #include "NetworkResourceLoadIdentifier.h"
 #include "NetworkResourceLoadMap.h"
 #include "PolicyDecision.h"
@@ -54,7 +52,6 @@
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/PushSubscriptionData.h>
 #include <WebCore/PushSubscriptionIdentifier.h>
-#include <WebCore/RTCDataChannelIdentifier.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/WebSocketIdentifier.h>
 #include <WebCore/WebTransportConnectionInfo.h>
@@ -73,7 +70,6 @@
 #endif
 
 #if USE(LIBRICE)
-#include "RiceBackend.h"
 #endif
 
 namespace PAL {
@@ -271,12 +267,6 @@ public:
 
     void useRedirectionForCurrentNavigation(WebCore::ResourceLoaderIdentifier, WebCore::ResourceResponse&&);
 
-#if ENABLE(WEB_RTC)
-    NetworkMDNSRegister& mdnsRegister() { return m_mdnsRegister; }
-#if PLATFORM(COCOA)
-    bool webRTCInterfaceMonitoringViaNWEnabled() const { return m_sharedPreferencesForWebProcess.webRTCInterfaceMonitoringViaNWEnabled; }
-#endif
-#endif
 
     WebSWServerToContextConnection* swContextConnection() { return m_swContextConnection.get(); }
     void clearFrameLoadRecordsForStorageAccess(WebCore::FrameIdentifier);
@@ -375,9 +365,6 @@ private:
     void closeSharedWorkerContextConnection();
 
     void createRTCProvider(CompletionHandler<void()>&&);
-#if ENABLE(WEB_RTC)
-    void connectToRTCDataChannelRemoteSource(WebCore::RTCDataChannelIdentifier source, WebCore::RTCDataChannelIdentifier handler, CompletionHandler<void(std::optional<bool>)>&&);
-#endif
 
     void createNewMessagePortChannel(const WebCore::MessagePortIdentifier& port1, const WebCore::MessagePortIdentifier& port2);
     void entangleLocalPortInThisProcessToRemote(const WebCore::MessagePortIdentifier& local, const WebCore::MessagePortIdentifier& remote);
@@ -397,10 +384,6 @@ private:
 
 #if USE(LIBWEBRTC)
     NetworkRTCProvider& rtcProvider();
-#endif
-#if ENABLE(WEB_RTC)
-    void registerToRTCDataChannelProxy();
-    void unregisterToRTCDataChannelProxy();
 #endif
         
     bool allowTestOnlyIPC() const { return m_sharedPreferencesForWebProcess.allowTestOnlyIPC; }
@@ -541,9 +524,6 @@ private:
 #if USE(LIBWEBRTC)
     RefPtr<NetworkRTCProvider> m_rtcProvider;
 #endif
-#if ENABLE(WEB_RTC)
-    NetworkMDNSRegister m_mdnsRegister;
-#endif
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     HashSet<String> m_hostsWithCookieListeners;
 #endif
@@ -555,9 +535,6 @@ private:
     WeakPtr<WebSharedWorkerServerConnection> m_sharedWorkerConnection;
     RefPtr<WebSharedWorkerServerToContextConnection> m_sharedWorkerContextConnection;
 
-#if ENABLE(WEB_RTC)
-    bool m_isRegisteredToRTCDataChannelProxy { false };
-#endif
 
 #if ENABLE(APPLE_PAY_REMOTE_UI)
     RefPtr<WebPaymentCoordinatorProxy> m_paymentCoordinator;

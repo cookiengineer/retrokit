@@ -111,11 +111,7 @@ void SpeechRecognitionPermissionManager::startNextRequest()
 void SpeechRecognitionPermissionManager::startProcessingRequest()
 {
     Ref page = *this->page();
-    page->syncIfMockDevicesEnabledChanged();
-    if (protect(page->preferences())->mockCaptureDevicesEnabled()) {
-        m_microphoneCheck = CheckResult::Granted;
-        m_speechRecognitionServiceCheck = CheckResult::Granted;
-    } else {
+    {
         // TCC status may have changed between requests.
         m_microphoneCheck = computeMicrophoneAccess();
         if (m_microphoneCheck == CheckResult::Denied) {

@@ -26,18 +26,12 @@
 #include "config.h"
 #include "APIUIClient.h"
 
-#include "UserMediaPermissionRequestProxy.h"
 #include "WebPageProxy.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace API {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(UIClient);
-
-void UIClient::decidePolicyForUserMediaPermissionRequest(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, SecurityOrigin&, SecurityOrigin&, WebKit::UserMediaPermissionRequestProxy& request)
-{
-    request.doDefaultAction();
-}
 
 void UIClient::createNewPage(WebKit::WebPageProxy&, Ref<API::PageConfiguration>&&, Ref<NavigationAction>&&, CompletionHandler<void(RefPtr<WebKit::WebPageProxy>&&)>&& completionHandler)
 {

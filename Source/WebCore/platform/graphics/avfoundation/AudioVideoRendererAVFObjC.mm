@@ -26,7 +26,6 @@
 #import "config.h"
 #import "AudioVideoRendererAVFObjC.h"
 
-#import "AudioMediaStreamTrackRenderer.h"
 #import "CDMFairPlayStreaming.h"
 #import "CDMInstanceFairPlayStreamingAVFObjC.h"
 #import "CDMLogging.h"
@@ -69,6 +68,7 @@
 #pragma mark - Soft Linking
 #import "CoreVideoSoftLink.h"
 #import "VideoToolboxSoftLink.h"
+#include "SampleBufferDisplayLayer.h"
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 

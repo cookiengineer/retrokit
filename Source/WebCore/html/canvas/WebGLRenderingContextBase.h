@@ -139,9 +139,6 @@ class WebGLShaderPrecisionFormat;
 class WebGLStencilTexturing;
 class WebGLUniformLocation;
 
-#if ENABLE(MEDIA_STREAM)
-class VideoFrame;
-#endif
 
 #if ENABLE(VIDEO)
 class HTMLVideoElement;
@@ -435,9 +432,6 @@ public:
     bool isSurfaceBufferTransparentBlack(SurfaceBuffer) const final { return false; }
 
     RefPtr<ByteArrayPixelBuffer> drawingBufferToPixelBuffer();
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-    RefPtr<VideoFrame> surfaceBufferToVideoFrame(SurfaceBuffer);
-#endif
     RefPtr<ImageBuffer> transferToImageBuffer() final;
 
     void removeSharedObject(WebGLObject&);

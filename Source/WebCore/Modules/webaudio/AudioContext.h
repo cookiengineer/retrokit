@@ -76,10 +76,6 @@ public:
 #if ENABLE(VIDEO)
     ExceptionOr<Ref<MediaElementAudioSourceNode>> createMediaElementSource(HTMLMediaElement&);
 #endif
-#if ENABLE(MEDIA_STREAM)
-    ExceptionOr<Ref<MediaStreamAudioSourceNode>> createMediaStreamSource(MediaStream&);
-    ExceptionOr<Ref<MediaStreamAudioDestinationNode>> createMediaStreamDestination();
-#endif
 
     void suspendRendering(DOMPromiseDeferred<void>&&);
     void resumeRendering(DOMPromiseDeferred<void>&&);

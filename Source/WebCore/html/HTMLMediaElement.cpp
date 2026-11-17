@@ -93,7 +93,6 @@
 #include "MIMETypeRegistry.h"
 #include "MediaController.h"
 #include "MediaControlsHost.h"
-#include "MediaDevices.h"
 #include "MediaDocument.h"
 #include "MediaError.h"
 #include "MediaFragmentURIParser.h"
@@ -104,7 +103,6 @@
 #include "MediaSession.h"
 #include "MessageClientForTesting.h"
 #include "Navigator.h"
-#include "NavigatorMediaDevices.h"
 #include "NavigatorMediaSession.h"
 #include "NetworkingContext.h"
 #include "NodeName.h"
@@ -205,9 +203,6 @@
 #include "SourceBufferList.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include "MediaStream.h"
-#endif
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 #include "WebKitMediaKeyNeededEvent.h"
@@ -1514,9 +1509,6 @@ void HTMLMediaElement::setSrcObject(std::optional<MediaProvider>&& mediaProvider
     // value, and then invoke the element’s media element load algorithm.
     INFO_LOG(LOGIDENTIFIER);
     m_mediaProvider = WTF::move(mediaProvider);
-#if ENABLE(MEDIA_STREAM)
-    m_mediaStreamSrcObject = nullptr;
-#endif
 #if ENABLE(MEDIA_SOURCE)
     detachMediaSource();
 #endif
@@ -1840,9 +1832,6 @@ void HTMLMediaElement::selectMediaResource()
             // 2. End the synchronous section, continuing the remaining steps in parallel.
             // 3. Run the resource fetch algorithm with the assigned media provider object.
             switchOn(element.m_mediaProvider.value(),
-#if ENABLE(MEDIA_STREAM)
-                [element = Ref { element }](Ref<MediaStream> stream) { element->m_mediaStreamSrcObject = WTF::move(stream); },
-#endif
 #if ENABLE(MEDIA_SOURCE)
                 [element = Ref { element }](Ref<MediaSource> source) { element->m_mediaSource = MediaSourceInterfaceMainThread::create(WTF::move(source)); },
 #endif
@@ -2140,16 +2129,6 @@ void HTMLMediaElement::loadResource(const URL& initialURL, const ContentType& in
     }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    if (RefPtr mediaStreamSrcObject = m_mediaStreamSrcObject; mediaStreamSrcObject && !m_remotePlaybackConfiguration) {
-        ALWAYS_LOG(logSiteIdentifier, "loading media stream blob ", mediaStreamSrcObject->logIdentifier());
-        if (!player->load(protect(mediaStreamSrcObject->privateStream())))
-            mediaLoadingFailed(MediaPlayer::NetworkState::FormatError);
-        else
-            mediaPlayerRenderingModeChanged();
-        return;
-    }
-#endif
 #if PLATFORM(IOS_FAMILY)
     if (canShowWhileLocked())
         options.videoRendererPreferences |= VideoRendererPreference::CanShowWhileLocked;
@@ -2165,10 +2144,6 @@ bool HTMLMediaElement::needsContentTypeToPlay() const
 #if ENABLE(MEDIA_SOURCE)
     if (m_mediaSource || (currentSrc().protocolIs(mediaSourceBlobProtocol) && MediaSource::lookup(currentSrc().string())))
         return false;
-#endif
-#if ENABLE(MEDIA_STREAM)
-        if (m_mediaStreamSrcObject)
-            return false;
 #endif
     return !m_remotePlaybackConfiguration;
 }
@@ -3895,49 +3870,6 @@ void HTMLMediaElement::fastSeek(const MediaTime& time)
     seekWithTolerance({ time, negativeTolerance, MediaTime::zeroTime() }, true);
 }
 
-#if ENABLE(MEDIA_STREAM)
-void HTMLMediaElement::setAudioOutputDevice(String&& deviceId, DOMPromiseDeferred<void>&& promise)
-{
-    RefPtr window = document().window();
-    RefPtr mediaDevices = window ? NavigatorMediaDevices::mediaDevices(protect(window->navigator())) : nullptr;
-    if (!mediaDevices) {
-        promise.reject(Exception { ExceptionCode::NotAllowedError });
-        return;
-    }
-
-    if (!protect(document())->processingUserGestureForMedia() && document().settings().speakerSelectionRequiresUserGesture()) {
-        ERROR_LOG(LOGIDENTIFIER, "rejecting promise as a user gesture is required");
-        promise.reject(Exception { ExceptionCode::NotAllowedError, "A user gesture is required"_s });
-        return;
-    }
-
-    if (deviceId.isEmpty())
-        deviceId = { };
-
-    if (deviceId == m_audioOutputHashedDeviceId) {
-        promise.resolve();
-        return;
-    }
-
-    String persistentId;
-    if (!deviceId.isNull()) {
-        persistentId = mediaDevices->deviceIdToPersistentId(deviceId);
-        if (persistentId.isNull()) {
-            promise.reject(Exception { ExceptionCode::NotFoundError });
-            return;
-        }
-    }
-
-    m_audioOutputPersistentDeviceId = WTF::move(persistentId);
-    if (RefPtr player = m_player)
-        player->audioOutputDeviceChanged();
-
-    queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [deviceId = WTF::move(deviceId), promise = WTF::move(promise)](auto& element) mutable {
-        element.m_audioOutputHashedDeviceId = WTF::move(deviceId);
-        promise.resolve();
-    });
-}
-#endif
 
 void HTMLMediaElement::seek(const MediaTime& time)
 {
@@ -4351,30 +4283,12 @@ void HTMLMediaElement::setPaused(bool paused)
 
 double HTMLMediaElement::defaultPlaybackRate() const
 {
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // "defaultPlaybackRate" - On setting: ignored. On getting: return 1.0
-    // A MediaStream is not seekable. Therefore, this attribute must always have the
-    // value 1.0 and any attempt to alter it must be ignored. Note that this also means
-    // that the ratechange event will not fire.
-    if (m_mediaStreamSrcObject)
-        return 1;
-#endif
 
     return m_defaultPlaybackRate;
 }
 
 void HTMLMediaElement::setDefaultPlaybackRate(double rate)
 {
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // "defaultPlaybackRate" - On setting: ignored. On getting: return 1.0
-    // A MediaStream is not seekable. Therefore, this attribute must always have the
-    // value 1.0 and any attempt to alter it must be ignored. Note that this also means
-    // that the ratechange event will not fire.
-    if (m_mediaStreamSrcObject)
-        return;
-#endif
 
     if (m_defaultPlaybackRate == rate)
         return;
@@ -4398,14 +4312,6 @@ double HTMLMediaElement::requestedPlaybackRate() const
 
 double HTMLMediaElement::playbackRate() const
 {
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // "playbackRate" - A MediaStream is not seekable. Therefore, this attribute must always
-    // have the value 1.0 and any attempt to alter it must be ignored. Note that this also
-    // means that the ratechange event will not fire.
-    if (m_mediaStreamSrcObject)
-        return 1;
-#endif
 
     return m_requestedPlaybackRate;
 }
@@ -4414,14 +4320,6 @@ void HTMLMediaElement::setPlaybackRate(double rate)
 {
     HTMLMEDIAELEMENT_RELEASE_LOG(SetPlaybackRate, rate);
 
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // "playbackRate" - A MediaStream is not seekable. Therefore, this attribute must always
-    // have the value 1.0 and any attempt to alter it must be ignored. Note that this also
-    // means that the ratechange event will not fire.
-    if (m_mediaStreamSrcObject)
-        return;
-#endif
 
     if (rate > maximumHLSPlaybackRate && protect(document())->quirks().shouldLimitHLSPlaybackRate() && movieLoadType() == HTMLMediaElement::MovieLoadType::HttpLiveStream) {
         ALWAYS_LOG(LOGIDENTIFIER, "Limiting rate to ", maximumHLSPlaybackRate);
@@ -4470,15 +4368,6 @@ double HTMLMediaElement::mediaPlayerCurrentTime() const
 
 bool HTMLMediaElement::ended() const
 {
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // When the MediaStream state moves from the active to the inactive state, the User Agent
-    // must raise an ended event on the HTMLMediaElement and set its ended attribute to true.
-    if (m_mediaStreamSrcObject) {
-        if (RefPtr player = m_player; player && player->ended())
-            return true;
-    }
-#endif
 
     // 4.8.10.8 Playing the media resource
     // The ended attribute must return true if the media element has ended
@@ -4493,12 +4382,6 @@ bool HTMLMediaElement::autoplay() const
 
 String HTMLMediaElement::preload() const
 {
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // "preload" - On getting: none. On setting: ignored.
-    if (m_mediaStreamSrcObject)
-        return noneAtom();
-#endif
 
     switch (m_preload) {
     case MediaPlayer::Preload::None:
@@ -4516,12 +4399,6 @@ String HTMLMediaElement::preload() const
 void HTMLMediaElement::setPreload(const AtomString& preload)
 {
     ALWAYS_LOG(LOGIDENTIFIER, preload);
-#if ENABLE(MEDIA_STREAM)
-    // http://w3c.github.io/mediacapture-main/#mediastreams-in-media-elements
-    // "preload" - On getting: none. On setting: ignored.
-    if (m_mediaStreamSrcObject)
-        return;
-#endif
 
     setAttributeWithoutSynchronization(preloadAttr, preload);
 }
@@ -6060,27 +5937,6 @@ void HTMLMediaElement::handlePlaybackPositionChanged()
         } else
             m_sentEndEvent = false;
     } else {
-#if ENABLE(MEDIA_STREAM)
-        if (m_mediaStreamSrcObject) {
-            // http://w3c.github.io/mediacapture-main/#event-mediastream-inactive
-            // 6. MediaStreams in Media Elements
-            // When the MediaStream state moves from the active to the inactive state, the User Agent
-            // must raise an ended event on the HTMLMediaElement and set its ended attribute to true.
-            // Note that once ended equals true the HTMLMediaElement will not play media even if new
-            // MediaStreamTrack's are added to the MediaStream (causing it to return to the active
-            // state) unless autoplay is true or the web application restarts the element, e.g.,
-            // by calling play()
-            if (!m_sentEndEvent) {
-                if (RefPtr player = m_player; player && player->ended()) {
-                    m_sentEndEvent = true;
-                    scheduleEvent(eventNames().endedEvent);
-                    addBehaviorRestrictionsOnEndIfNecessary();
-                    setPaused(true);
-                    setPlaying(false);
-                }
-            }
-        } else
-#endif
         m_sentEndEvent = false;
     }
 
@@ -6852,10 +6708,6 @@ void HTMLMediaElement::clearMediaPlayer() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     invalidateWatchtimeTimer();
     invalidateBufferingStopwatch();
 
-#if ENABLE(MEDIA_STREAM)
-    if (!m_settingMediaStreamSrcObject)
-        m_mediaStreamSrcObject = nullptr;
-#endif
 
 #if ENABLE(MEDIA_SOURCE)
     detachMediaSource();
@@ -7093,11 +6945,6 @@ bool HTMLMediaElement::virtualHasPendingActivity() const
         if (m_networkState == NETWORK_LOADING)
             return true;
 
-#if ENABLE(MEDIA_STREAM)
-        // * It has a live MediaStream object:
-        if (m_mediaStreamSrcObject)
-            return true;
-#endif
     }
 
     // Otherwise, the media element will fire no events at event listeners, and
@@ -8532,13 +8379,6 @@ void HTMLMediaElement::updateSleepDisabling()
         player->setShouldDisableSleep(shouldDisableSleep == SleepType::Display);
 }
 
-#if ENABLE(MEDIA_STREAM)
-static inline bool isRemoteMediaStreamVideoTrack(const Ref<MediaStreamTrack>& item)
-{
-    auto& track = item.get();
-    return track.privateTrack().type() == RealtimeMediaSource::Type::Video && !track.isCaptureTrack() && !track.isCanvas();
-}
-#endif
 
 HTMLMediaElement::SleepType HTMLMediaElement::shouldDisableSleep() const
 {
@@ -8561,12 +8401,6 @@ HTMLMediaElement::SleepType HTMLMediaElement::shouldDisableSleep() const
         return SleepType::None;
 
     bool shouldBeAbleToSleep = mediaType() != PlatformMediaSession::MediaType::VideoAudio;
-#if ENABLE(MEDIA_STREAM)
-    // Remote media stream video tracks may have their corresponding audio tracks being played outside of the media element. Let's ensure to not IDLE the screen in that case.
-    // FIXME: We should check that audio is being/to be played. Ideally, we would come up with a media stream agnostic heuristisc.
-    RefPtr mediaStreamSrcObject = m_mediaStreamSrcObject;
-    shouldBeAbleToSleep = shouldBeAbleToSleep && !(mediaStreamSrcObject && mediaStreamSrcObject->hasMatchingTrack(isRemoteMediaStreamVideoTrack));
-#endif
 
     if (shouldBeAbleToSleep)
         return SleepType::None;
@@ -9375,12 +9209,6 @@ bool HTMLMediaElement::supportsSeeking() const
     return !protect(document())->quirks().needsSeekingSupportDisabled();
 }
 
-#if ENABLE(MEDIA_STREAM)
-static bool isCameraTrack(const MediaStreamTrack& track)
-{
-    return track.isCaptureTrack() && track.isVideo();
-}
-#endif
 
 bool HTMLMediaElement::shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType type) const
 {
@@ -9399,16 +9227,6 @@ bool HTMLMediaElement::shouldOverrideBackgroundPlaybackRestriction(PlatformMedia
             return true;
         }
 #endif
-#if ENABLE(MEDIA_STREAM)
-        if (protect(document())->quirks().shouldEnableCameraBackgroundPlayback() && mediaState().containsAny(MediaProducerMediaState::IsPlayingVideo) && m_mediaStreamSrcObject && m_mediaStreamSrcObject->hasMatchingTrack(isCameraTrack)) {
-            INFO_LOG(LOGIDENTIFIER, "returning true because playing a camera MediaStreamTrack");
-            return true;
-        }
-        if (hasMediaStreamSrcObject() && mediaState().containsAny(MediaProducerMediaState::IsPlayingAudio) && document().mediaState().containsAny(MediaProducerMediaState::HasActiveAudioCaptureDevice)) {
-            INFO_LOG(LOGIDENTIFIER, "returning true because playing an audio MediaStreamTrack");
-            return true;
-        }
-#endif
     } else if (type == PlatformMediaSession::InterruptionType::SuspendedUnderLock) {
         if (isPlayingToExternalTarget()) {
             INFO_LOG(LOGIDENTIFIER, "returning true because isPlayingToExternalTarget() is true");
@@ -9418,12 +9236,6 @@ bool HTMLMediaElement::shouldOverrideBackgroundPlaybackRestriction(PlatformMedia
             INFO_LOG(LOGIDENTIFIER, "returning true because isPlayingToAutomotiveHeadUnit() is true");
             return true;
         }
-#if ENABLE(MEDIA_STREAM)
-        if (hasMediaStreamSrcObject() && mediaState().containsAny(MediaProducerMediaState::IsPlayingAudio) && document().mediaState().containsAny(MediaProducerMediaState::HasActiveAudioCaptureDevice)) {
-            INFO_LOG(LOGIDENTIFIER, "returning true because playing an audio MediaStreamTrack");
-            return true;
-        }
-#endif
     }
     return false;
 }
@@ -10053,17 +9865,6 @@ bool HTMLMediaElement::hasMediaStreamSource() const
 #endif
 }
 
-#if ENABLE(MEDIA_STREAM)
-void HTMLMediaElement::mediaStreamCaptureStarted()
-{
-    auto canTransition = canTransitionFromAutoplayToPlay();
-    if (canTransition) {
-        HTMLMEDIAELEMENT_RELEASE_LOG(MediaStreamCaptureStarted);
-        play();
-    } else
-        ALWAYS_LOG(LOGIDENTIFIER, "autoplay blocked with reason: ", canTransition.error());
-}
-#endif
 
 SecurityOriginData HTMLMediaElement::documentSecurityOrigin() const
 {

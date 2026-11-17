@@ -34,7 +34,6 @@
 #include "RemoteWebLockRegistry.h"
 #include "RemoteWorkerFrameLoaderClient.h"
 #include "RemoteWorkerInitializationData.h"
-#include "RemoteWorkerLibWebRTCProvider.h"
 #include "ServiceWorkerFetchTaskMessages.h"
 #include "WebBadgeClient.h"
 #include "WebBroadcastChannelRegistry.h"
@@ -162,9 +161,6 @@ void WebSWContextManagerConnection::installServiceWorker(ServiceWorkerContextDat
         pageConfiguration.userContentProvider = m_userContentController;
         pageConfiguration.cookieJar = WebCookieJar::create();
         pageConfiguration.cryptoClient = makeUniqueRef<WebCryptoClient>();
-#if ENABLE(WEB_RTC)
-        pageConfiguration.webRTCProvider = makeUniqueRef<RemoteWorkerLibWebRTCProvider>();
-#endif
         pageConfiguration.storageProvider = makeUniqueRef<WebStorageProvider>(WebProcess::singleton().mediaKeysStorageDirectory(), WebProcess::singleton().mediaKeysStorageSalt());
 
         if (RefPtr serviceWorkerPage = m_serviceWorkerPageIdentifier ? Page::serviceWorkerPage(*m_serviceWorkerPageIdentifier) : nullptr)

@@ -93,7 +93,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/ios/controls"
     "${WEBCORE_DIR}/platform/ios"
     "${WEBCORE_DIR}/platform/ios/wak"
-    "${WEBCORE_DIR}/platform/mediastream/ios"
     "${WEBCORE_DIR}/platform/network/ios"
     "${WEBCORE_DIR}/rendering/ios"
 )
@@ -138,7 +137,6 @@ list(APPEND WebCore_SOURCES
     platform/ios/wak/WAKResponder.mm
     platform/ios/wak/WKUtilities.cpp
 
-    platform/mediastream/ios/MediaCaptureStatusBarManager.mm
 
     rendering/ios/RenderThemeIOS.mm
 )
@@ -172,9 +170,6 @@ set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_IOS WTF_PLATFORM_IOS_FAMILY WTF_PLA
 
 list(APPEND WebCoreTestSupport_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/testing/cocoa")
 list(APPEND WebCoreTestSupport_SOURCES
-    testing/MockMediaDeviceRoute.mm
-    testing/MockMediaDeviceRouteController.mm
 
-    testing/cocoa/WebMockMediaDeviceRoute.mm
 )
 

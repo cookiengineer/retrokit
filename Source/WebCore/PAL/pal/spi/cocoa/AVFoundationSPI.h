@@ -59,6 +59,7 @@ IGNORE_WARNINGS_END
 #if ENABLE(MEDIA_SOURCE)
 #if PLATFORM(IOS_FAMILY_SIMULATOR)
 #import "AVStreamDataParserSPI.h"
+#include "SampleBufferDisplayLayer.h"
 #else
 #import <AVFoundation/AVStreamDataParser.h>
 #endif

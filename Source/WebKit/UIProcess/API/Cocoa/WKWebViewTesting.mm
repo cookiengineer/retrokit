@@ -37,7 +37,6 @@
 #import "PrintInfo.h"
 #import "RemoteLayerTreeDrawingAreaProxy.h"
 #import "RemoteScrollingCoordinatorProxy.h"
-#import "UserMediaProcessManager.h"
 #import "ViewGestureController.h"
 #import "ViewSnapshotStore.h"
 #import "WKColorExtensionView.h"
@@ -490,35 +489,14 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
 
 - (void)_denyNextUserMediaRequest
 {
-#if ENABLE(MEDIA_STREAM)
-    WebKit::UserMediaProcessManager::singleton().denyNextUserMediaRequest();
-#endif
 }
 
 - (void)_setIndexOfGetDisplayMediaDeviceSelectedForTesting:(NSNumber *)nsIndex
 {
-#if ENABLE(MEDIA_STREAM)
-    if (!_page)
-        return;
-
-    std::optional<unsigned> index;
-    if (nsIndex)
-        index = nsIndex.unsignedIntValue;
-
-    if (RefPtr pageForTesting = _page->pageForTesting())
-        pageForTesting->setIndexOfGetDisplayMediaDeviceSelectedForTesting(index);
-#endif
 }
 
 - (void)_setSystemCanPromptForGetDisplayMediaForTesting:(BOOL)canPrompt
 {
-#if ENABLE(MEDIA_STREAM)
-    if (!_page)
-        return;
-
-    if (RefPtr pageForTesting = _page->pageForTesting())
-        pageForTesting->setSystemCanPromptForGetDisplayMediaForTesting(!!canPrompt);
-#endif
 }
 
 - (double)_mediaCaptureReportingDelayForTesting

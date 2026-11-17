@@ -68,19 +68,14 @@
 #include "RemoteAudioSessionProxyManager.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include <WebCore/MockRealtimeMediaSourceCenter.h>
-#endif
 
 #if PLATFORM(COCOA)
 #include "ArgumentCodersCocoa.h"
-#include <WebCore/CoreAudioCaptureUnit.h>
 #include <WebCore/UTIUtilities.h>
 #include <WebCore/VP9UtilitiesCocoa.h>
 #endif
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-#include <WebCore/ScreenCaptureKitCaptureSource.h>
 #endif
 
 namespace WebKit {
@@ -97,9 +92,6 @@ GPUProcess::GPUProcess()
     : m_idleExitTimer(*this, &GPUProcess::tryExitIfUnused)
 {
     RELEASE_LOG(Process, "%p - GPUProcess::GPUProcess:", this);
-#if ASSERT_ENABLED && PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    CoreAudioCaptureUnit::allowStarting();
-#endif
 }
 
 GPUProcess::~GPUProcess() = default;
@@ -121,12 +113,6 @@ void GPUProcess::createGPUConnectionToWebProcess(WebCore::ProcessIdentifier iden
 
     auto newConnection = GPUConnectionToWebProcess::create(*this, identifier, sessionID, WTF::move(connectionHandle), WTF::move(parameters));
 
-#if ENABLE(MEDIA_STREAM)
-    // FIXME: We should refactor code to go from WebProcess -> GPUProcess -> UIProcess when getUserMedia is called instead of going from WebProcess -> UIProcess directly.
-    auto access = m_mediaCaptureAccessMap.take(identifier);
-    newConnection->updateCaptureAccess(access.allowAudioCapture, access.allowVideoCapture, access.allowDisplayCapture);
-    newConnection->setOrientationForMediaCapture(m_orientation);
-#endif
 
 #if ENABLE(IPC_TESTING_API)
     if (parameters.ignoreInvalidMessageForTesting)
@@ -237,19 +223,6 @@ void GPUProcess::initializeGPUProcess(GPUProcessCreationParameters&& parameters,
     DeprecatedGlobalSettings::setShouldManageAudioSessionCategory(true);
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    setMockCaptureDevicesEnabled(parameters.useMockCaptureDevices);
-#if PLATFORM(MAC)
-    SandboxExtension::consumePermanently(parameters.microphoneSandboxExtensionHandle);
-#endif
-#if PLATFORM(IOS_FAMILY)
-CoreAudioCaptureUnit::defaultSingleton().setStatusBarWasTappedCallback([weakProcess = WeakPtr { *this }] (auto completionHandler) {
-        if (RefPtr process = weakProcess.get())
-            process->parentProcessConnection()->sendWithAsyncReply(Messages::GPUProcessProxy::StatusBarWasTapped(), [] { }, 0);
-        completionHandler();
-    });
-#endif
-#endif // ENABLE(MEDIA_STREAM)
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     SandboxExtension::consumePermanently(parameters.containerCachesDirectoryExtensionHandle);
@@ -424,111 +397,6 @@ void GPUProcess::releaseSnapshot(RemoteSnapshotIdentifier identifier)
     m_snapshots.remove(identifier);
 }
 
-#if ENABLE(MEDIA_STREAM)
-void GPUProcess::setMockCaptureDevicesEnabled(bool isEnabled)
-{
-    WebCore::MockRealtimeMediaSourceCenter::setMockRealtimeMediaSourceCenterEnabled(isEnabled);
-}
-
-void GPUProcess::setOrientationForMediaCapture(WebCore::IntDegrees orientation)
-{
-    m_orientation = orientation;
-    for (auto& connection : m_webProcessConnections.values())
-        connection->setOrientationForMediaCapture(orientation);
-}
-
-void GPUProcess::enableMicrophoneMuteStatusAPI()
-{
-#if PLATFORM(COCOA)
-    CoreAudioCaptureUnit::defaultSingleton().setMuteStatusChangedCallback([weakProcess = WeakPtr { *this }] (bool isMuting) {
-        if (RefPtr process = weakProcess.get())
-            protect(process->parentProcessConnection())->send(Messages::GPUProcessProxy::MicrophoneMuteStatusChanged(isMuting), 0);
-    });
-#endif
-}
-
-void GPUProcess::rotationAngleForCaptureDeviceChanged(const String& persistentId, WebCore::VideoFrameRotation rotation)
-{
-    for (auto& connection : m_webProcessConnections.values())
-        connection->rotationAngleForCaptureDeviceChanged(persistentId, rotation);
-}
-
-void GPUProcess::updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier processID, CompletionHandler<void()>&& completionHandler)
-{
-    RELEASE_LOG(WebRTC, "GPUProcess::updateCaptureAccess: Entering (audio=%d, video=%d, display=%d)", allowAudioCapture, allowVideoCapture, allowDisplayCapture);
-
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    ensureAVCaptureServerConnection();
-#endif
-
-    if (RefPtr connection = webProcessConnection(processID)) {
-        connection->updateCaptureAccess(allowAudioCapture, allowVideoCapture, allowDisplayCapture);
-        return completionHandler();
-    }
-
-    auto& access = m_mediaCaptureAccessMap.add(processID, MediaCaptureAccess { allowAudioCapture, allowVideoCapture, allowDisplayCapture }).iterator->value;
-    access.allowAudioCapture |= allowAudioCapture;
-    access.allowVideoCapture |= allowVideoCapture;
-    access.allowDisplayCapture |= allowDisplayCapture;
-
-    completionHandler();
-}
-
-void GPUProcess::updateCaptureOrigin(const WebCore::SecurityOriginData& originData, WebCore::ProcessIdentifier processID)
-{
-    if (RefPtr connection = webProcessConnection(processID))
-        connection->updateCaptureOrigin(originData);
-}
-
-void GPUProcess::addMockMediaDevice(const WebCore::MockMediaDevice& device)
-{
-    WebCore::MockRealtimeMediaSourceCenter::addDevice(device);
-}
-
-void GPUProcess::clearMockMediaDevices()
-{
-    WebCore::MockRealtimeMediaSourceCenter::setDevices({ });
-}
-
-void GPUProcess::removeMockMediaDevice(const String& persistentId)
-{
-    WebCore::MockRealtimeMediaSourceCenter::removeDevice(persistentId);
-}
-
-void GPUProcess::setMockMediaDeviceIsEphemeral(const String& persistentId, bool isEphemeral)
-{
-    WebCore::MockRealtimeMediaSourceCenter::setDeviceIsEphemeral(persistentId, isEphemeral);
-}
-
-void GPUProcess::resetMockMediaDevices()
-{
-    WebCore::MockRealtimeMediaSourceCenter::resetDevices();
-}
-
-void GPUProcess::setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted)
-{
-    WebCore::MockRealtimeMediaSourceCenter::setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
-}
-
-void GPUProcess::triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay)
-{
-    WebCore::MockRealtimeMediaSourceCenter::singleton().triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-}
-
-void GPUProcess::setShouldListenToVoiceActivity(bool shouldListen)
-{
-#if PLATFORM(COCOA)
-    if (!shouldListen) {
-        RealtimeMediaSourceCenter::singleton().audioCaptureFactory().disableMutedSpeechActivityEventListener();
-        return;
-    }
-
-    RealtimeMediaSourceCenter::singleton().audioCaptureFactory().enableMutedSpeechActivityEventListener([] {
-        protect(GPUProcess::singleton().parentProcessConnection())->send(Messages::GPUProcessProxy::VoiceActivityDetected { }, 0);
-    });
-#endif
-}
-#endif // ENABLE(MEDIA_STREAM)
 
 #if HAVE(SCREEN_CAPTURE_KIT)
 void GPUProcess::promptForGetDisplayMedia(WebCore::DisplayCapturePromptType type, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&& completionHandler)
@@ -607,14 +475,6 @@ RemoteAudioSessionProxyManager& GPUProcess::audioSessionManager() const
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-WorkQueue& GPUProcess::videoMediaStreamTrackRendererQueue()
-{
-    if (!m_videoMediaStreamTrackRendererQueue)
-        m_videoMediaStreamTrackRendererQueue = WorkQueue::create("RemoteVideoMediaStreamTrackRenderer"_s, WorkQueue::QOS::UserInitiated);
-    return *m_videoMediaStreamTrackRendererQueue;
-}
-#endif
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
 WorkQueue& GPUProcess::libWebRTCCodecsQueue()
@@ -635,13 +495,6 @@ void GPUProcess::terminateWebProcess(WebCore::ProcessIdentifier identifier)
     protect(parentProcessConnection())->send(Messages::GPUProcessProxy::TerminateWebProcess(identifier), 0);
 }
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-void GPUProcess::processIsStartingToCaptureAudio(GPUConnectionToWebProcess& process)
-{
-    for (auto& connection : m_webProcessConnections.values())
-        connection->processIsStartingToCaptureAudio(process);
-}
-#endif
 
 
 #if HAVE(AUDIT_TOKEN)

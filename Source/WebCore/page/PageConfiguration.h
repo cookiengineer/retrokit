@@ -94,7 +94,6 @@ class UserContentProvider;
 class UserContentURLPattern;
 class ValidationMessageClient;
 class VisitedLinkStore;
-class WebRTCProvider;
 
 enum class SandboxFlag : uint16_t;
 using SandboxFlags = OptionSet<SandboxFlag>;
@@ -118,7 +117,6 @@ public:
         PAL::SessionID,
         UniqueRef<EditorClient>&&,
         Ref<SocketProvider>&&,
-        UniqueRef<WebRTCProvider>&&,
         Ref<CacheStorageProvider>&&,
         Ref<UserContentProvider>&&,
         Ref<BackForwardClient>&&,
@@ -173,7 +171,6 @@ public:
     std::optional<ApplicationManifest> applicationManifest;
 #endif
 
-    UniqueRef<WebRTCProvider> webRTCProvider;
 
     UniqueRef<ProgressTrackerClient> progressTrackerClient;
     Ref<BackForwardClient> backForwardClient;

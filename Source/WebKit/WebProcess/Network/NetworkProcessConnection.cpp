@@ -26,10 +26,8 @@
 #include "config.h"
 #include "NetworkProcessConnection.h"
 
-#include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"
-#include "RTCDataChannelRemoteManager.h"
 #include "StorageAreaMap.h"
 #include "StorageAreaMapMessages.h"
 #include "WebBroadcastChannelRegistry.h"
@@ -47,7 +45,6 @@
 #include "WebPageMessages.h"
 #include "WebPaymentCoordinator.h"
 #include "WebProcess.h"
-#include "WebRTCMonitor.h"
 #include "WebRTCMonitorMessages.h"
 #include "WebRTCResolverMessages.h"
 #include "WebResourceLoaderMessages.h"
@@ -77,7 +74,6 @@
 #include <pal/SessionID.h>
 
 #if USE(LIBRICE)
-#include "RiceBackendProxy.h"
 #include "RiceBackendProxyMessages.h"
 #endif
 
@@ -361,12 +357,6 @@ void NetworkProcessConnection::loadCancelledDownloadRedirectRequestInFrame(WebCo
         RELEASE_LOG_ERROR(Process, "Trying to load Invalid page or frame for %s", request.url().string().utf8().data());
 }
 
-#if ENABLE(WEB_RTC)
-void NetworkProcessConnection::connectToRTCDataChannelRemoteSource(WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier, CompletionHandler<void(std::optional<bool>)>&& callback)
-{
-    callback(RTCDataChannelRemoteManager::singleton().connectToRemoteSource(localIdentifier, remoteIdentifier));
-}
-#endif
 
 void NetworkProcessConnection::storageAccessPermissionChanged(const WebCore::RegistrableDomain& topFrameDomain, const WebCore::RegistrableDomain& subFrameDomain)
 {

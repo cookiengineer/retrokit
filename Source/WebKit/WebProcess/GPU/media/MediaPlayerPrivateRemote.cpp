@@ -979,23 +979,6 @@ void MediaPlayerPrivateRemote::load(const URL&, const LoadOptions&, MediaSourceP
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-void MediaPlayerPrivateRemote::load(MediaStreamPrivate&)
-{
-    callOnMainRunLoop([weakThis = ThreadSafeWeakPtr { *this }] {
-        RefPtr protectedThis = weakThis.get();
-        if (!protectedThis)
-            return;
-
-        auto player = protectedThis->m_player.get();
-        if (!player)
-            return;
-
-        protectedThis->m_cachedState.networkState = MediaPlayer::NetworkState::FormatError;
-        player->networkStateChanged();
-    });
-}
-#endif
 
 PlatformLayer* MediaPlayerPrivateRemote::platformLayer() const
 {

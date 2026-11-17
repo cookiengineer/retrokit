@@ -35,7 +35,6 @@
 #include "RemoteCDMInstance.h"
 #include "RemoteLegacyCDMFactory.h"
 #include "RemoteLegacyCDMSession.h"
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "RemoteVideoFrameProxy.h"
 #include "RemoteVideoFrameProxyProperties.h"
 #include "WebProcess.h"

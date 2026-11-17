@@ -72,9 +72,6 @@ struct _WebKitSettingsPrivate {
         pictographFontFamily = preferences->pictographFontFamily().utf8();
         mathFontFamily = preferences->mathFontFamily().utf8();
         defaultCharset = preferences->defaultTextEncodingName().utf8();
-#if ENABLE(WEB_RTC)
-        webrtcUDPPortsRange = preferences->webRTCUDPPortRange().utf8();
-#endif
     }
 
     RefPtr<WebPreferences> preferences;
@@ -89,9 +86,6 @@ struct _WebKitSettingsPrivate {
     CString defaultCharset;
     CString userAgent;
     CString mediaContentTypesRequiringHardwareSupport;
-#if ENABLE(WEB_RTC)
-    CString webrtcUDPPortsRange;
-#endif
     bool allowModalDialogs { false };
     bool zoomTextOnly { false };
 #if PLATFORM(GTK)

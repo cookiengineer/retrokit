@@ -78,10 +78,6 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "CanvasCaptureMediaStreamTrack.h"
-#include "MediaStream.h"
-#endif
 
 #if ENABLE(WEBGL)
 #include "WebGLContextAttributes.h"
@@ -739,54 +735,7 @@ RefPtr<ImageData> HTMLCanvasElement::getImageData()
 #endif
 }
 
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
 
-RefPtr<VideoFrame> HTMLCanvasElement::toVideoFrame()
-{
-#if PLATFORM(COCOA) || USE(GSTREAMER)
-#if ENABLE(WEBGL)
-    if (RefPtr context = dynamicDowncast<WebGLRenderingContextBase>(m_context.get())) {
-        return context->surfaceBufferToVideoFrame(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
-    }
-#endif
-
-    RefPtr imageBuffer = makeRenderingResultsAvailable();
-    if (!imageBuffer)
-        return nullptr;
-
-    // FIXME: This can likely be optimized quite a bit, especially in the cases where
-    // the ImageBuffer is backed by GPU memory already and/or is in the GPU process by
-    // specializing toVideoFrame() in ImageBufferBackend to not use getPixelBuffer().
-    auto pixelBuffer = imageBuffer->getPixelBuffer({ AlphaPremultiplication::Unpremultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, { { }, imageBuffer->truncatedLogicalSize() });
-    if (!pixelBuffer)
-        return nullptr;
-
-    // FIXME: Set color space.
-    return VideoFrame::createFromPixelBuffer(pixelBuffer.releaseNonNull());
-#else
-    return nullptr;
-#endif
-}
-
-#endif // ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-
-#if ENABLE(MEDIA_STREAM)
-
-ExceptionOr<Ref<MediaStream>> HTMLCanvasElement::captureStream(std::optional<double>&& frameRequestRate)
-{
-    if (!originClean())
-        return Exception(ExceptionCode::SecurityError, "Canvas is tainted"_s);
-    Ref document = this->document();
-
-    if (frameRequestRate && frameRequestRate.value() < 0)
-        return Exception(ExceptionCode::NotSupportedError, "frameRequestRate is negative"_s);
-
-    auto track = CanvasCaptureMediaStreamTrack::create(document.get(), *this, WTF::move(frameRequestRate));
-    auto stream = MediaStream::create(document.get());
-    stream->addTrack(track);
-    return stream;
-}
-#endif
 
 SecurityOrigin* HTMLCanvasElement::securityOrigin() const
 {

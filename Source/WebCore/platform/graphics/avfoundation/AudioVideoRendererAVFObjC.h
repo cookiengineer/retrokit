@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/AudioVideoRenderer.h>
+#include "SampleBufferDisplayLayer.h"
 #include <WebCore/PeriodicSharedTimer.h>
 #include <WebCore/PlatformDynamicRangeLimit.h>
 #include <WebCore/ProcessIdentity.h>

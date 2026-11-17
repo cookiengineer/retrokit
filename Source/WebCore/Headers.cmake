@@ -546,41 +546,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/mediasource/MediaSourceHandle.h
     Modules/mediasource/SampleMap.h
 
-    Modules/mediastream/DetachedRTCDataChannel.h
-    Modules/mediastream/DoubleRange.h
-    Modules/mediastream/LongRange.h
-    Modules/mediastream/MediaAccessDenialReason.h
-    Modules/mediastream/MediaDeviceHashSalts.h
-    Modules/mediastream/MediaStreamTrack.h
-    Modules/mediastream/MediaStreamTrackHandle.h
-    Modules/mediastream/MediaTrackCapabilities.h
-    Modules/mediastream/MediaTrackConstraints.h
-    Modules/mediastream/RTCDataChannel.h
-    Modules/mediastream/RTCDataChannelRemoteHandler.h
-    Modules/mediastream/RTCDataChannelRemoteSource.h
-    Modules/mediastream/RTCError.h
-    Modules/mediastream/RTCErrorDetailType.h
-    Modules/mediastream/RTCIceCandidate.h
-    Modules/mediastream/RTCIceCandidateFields.h
-    Modules/mediastream/RTCIceCandidateType.h
-    Modules/mediastream/RTCIceComponent.h
-    Modules/mediastream/RTCIceProtocol.h
-    Modules/mediastream/RTCIceRole.h
-    Modules/mediastream/RTCIceServerTransportProtocol.h
-    Modules/mediastream/RTCIceTcpCandidateType.h
-    Modules/mediastream/RTCNetworkManager.h
-    Modules/mediastream/RTCRtpCodec.h
-    Modules/mediastream/RTCRtpScriptTransformer.h
-    Modules/mediastream/RTCRtpTransceiver.h
-    Modules/mediastream/RTCRtpTransformBackend.h
-    Modules/mediastream/RTCRtpTransformableFrame.h
-    Modules/mediastream/RTCSessionDescription.h
-    Modules/mediastream/RTCStatsReport.h
-    Modules/mediastream/STUNMessageParsing.h
-    Modules/mediastream/UserMediaClient.h
-    Modules/mediastream/UserMediaController.h
-    Modules/mediastream/UserMediaRequest.h
-    Modules/mediastream/libwebrtc/LibWebRTCUtils.h
 
     Modules/model-element/HTMLModelElement.h
     Modules/model-element/HTMLModelElementCamera.h
@@ -2072,7 +2037,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/UserContentURLPattern.h
     page/UserGestureTokenIdentifier.h
     page/UserInterfaceDirectionPolicy.h
-    page/UserMediaRequestIdentifier.h
     page/UserMessageHandler.h
     page/UserMessageHandlerDescriptor.h
     page/UserMessageHandlersNamespace.h
@@ -2794,71 +2758,10 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mediacapabilities/PlatformMediaEncodingType.h
     platform/mediacapabilities/PlatformMediaEngineConfigurationFactory.h
 
-    platform/mediarecorder/MediaRecorderPrivateAVFImpl.h
-    platform/mediarecorder/MediaRecorderPrivateOptions.h
-    platform/mediarecorder/MediaRecorderPrivateWriter.h
 
-    platform/mediastream/AudioMediaStreamTrackRenderer.h
-    platform/mediastream/AudioTrackPrivateMediaStream.h
-    platform/mediastream/CaptureDevice.h
-    platform/mediastream/CaptureDeviceManager.h
-    platform/mediastream/CaptureDeviceWithCapabilities.h
-    platform/mediastream/DisplayCaptureManager.h
-    platform/mediastream/DisplayCapturePromptType.h
-    platform/mediastream/FillLightMode.h
-    platform/mediastream/MDNSRegisterError.h
-    platform/mediastream/MediaConstraintType.h
-    platform/mediastream/MediaConstraints.h
-    platform/mediastream/MediaSettingsRange.h
-    platform/mediastream/MediaStreamPrivate.h
-    platform/mediastream/MediaStreamRequest.h
-    platform/mediastream/MediaStreamTrackDataHolder.h
-    platform/mediastream/MediaStreamTrackHintValue.h
-    platform/mediastream/MediaStreamTrackPrivate.h
-    platform/mediastream/MeteringMode.h
-    platform/mediastream/PhotoCapabilities.h
-    platform/mediastream/PhotoSettings.h
-    platform/mediastream/RTCDataChannelHandler.h
-    platform/mediastream/RTCDataChannelHandlerClient.h
-    platform/mediastream/RTCDataChannelIdentifier.h
-    platform/mediastream/RTCDataChannelLocalIdentifier.h
-    platform/mediastream/RTCDataChannelRemoteHandlerConnection.h
-    platform/mediastream/RTCDataChannelRemoteSourceConnection.h
-    platform/mediastream/RTCDataChannelState.h
-    platform/mediastream/RTCIceConnectionState.h
-    platform/mediastream/RTCPeerConnectionHandlerClient.h
-    platform/mediastream/RTCPriorityType.h
-    platform/mediastream/RTCRtpCapabilities.h
-    platform/mediastream/RealtimeIncomingVideoSource.h
-    platform/mediastream/RealtimeMediaSource.h
-    platform/mediastream/RealtimeMediaSourceCapabilities.h
-    platform/mediastream/RealtimeMediaSourceCenter.h
-    platform/mediastream/RealtimeMediaSourceFactory.h
-    platform/mediastream/RealtimeMediaSourceIdentifier.h
-    platform/mediastream/RealtimeMediaSourceSettings.h
-    platform/mediastream/RealtimeMediaSourceSupportedConstraints.h
-    platform/mediastream/RealtimeVideoCaptureSource.h
-    platform/mediastream/RedEyeReduction.h
-    platform/mediastream/VideoPreset.h
-    platform/mediastream/VideoTrackPrivateMediaStream.h
-    platform/mediastream/WebAudioSourceProvider.h
-    platform/mediastream/WebRTCProvider.h
-    platform/mediastream/libwebrtc/LibWebRTCAudioModule.h
-    platform/mediastream/libwebrtc/LibWebRTCDav1dDecoder.h
-    platform/mediastream/libwebrtc/LibWebRTCMacros.h
-    platform/mediastream/libwebrtc/LibWebRTCProvider.h
-    platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.h
-    platform/mediastream/libwebrtc/LibWebRTCRefWrappers.h
-    platform/mediastream/libwebrtc/LibWebRTCSocketIdentifier.h
-    platform/mediastream/libwebrtc/LibWebRTCVideoFrameUtilities.h
-    platform/mediastream/libwebrtc/VideoFrameLibWebRTC.h
 
     platform/mock/MediaPlaybackTargetMock.h
     platform/mock/MediaPlaybackTargetPickerMock.h
-    platform/mock/MockMediaDevice.h
-    platform/mock/MockRealtimeAudioSource.h
-    platform/mock/MockRealtimeMediaSourceCenter.h
-    platform/mock/MockRealtimeVideoSource.h
     platform/mock/ScrollbarsControllerMock.h
 
     platform/mock/mediasource/MockMediaSourcePrivate.h

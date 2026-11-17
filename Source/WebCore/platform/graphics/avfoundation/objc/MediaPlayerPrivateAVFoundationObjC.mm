@@ -31,7 +31,6 @@
 #import "AVAssetMIMETypeCache.h"
 #import "AVAssetTrackUtilities.h"
 #import "AVTrackPrivateAVFObjCImpl.h"
-#import "AudioMediaStreamTrackRenderer.h"
 #import "AudioSourceProviderAVFObjC.h"
 #import "AudioTrackPrivateAVFObjC.h"
 #import "AuthenticationChallenge.h"

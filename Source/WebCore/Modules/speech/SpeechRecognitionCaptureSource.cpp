@@ -27,11 +27,6 @@
 #include "SpeechRecognitionCaptureSource.h"
 #include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "CaptureDeviceManager.h"
-#include "RealtimeMediaSourceCenter.h"
-#include "SpeechRecognitionUpdate.h"
-#endif
 
 namespace WebCore {
 
@@ -39,42 +34,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(SpeechRecognitionCaptureSource);
 
 void SpeechRecognitionCaptureSource::mute()
 {
-#if ENABLE(MEDIA_STREAM)
-    m_impl->mute();
-#endif
 }
 
-#if ENABLE(MEDIA_STREAM)
-
-std::optional<CaptureDevice> SpeechRecognitionCaptureSource::findCaptureDevice()
-{
-    std::optional<CaptureDevice> captureDevice;
-    auto devices = RealtimeMediaSourceCenter::singleton().audioCaptureFactory().audioCaptureDeviceManager().captureDevices();
-    for (auto device : devices) {
-        if (!device.enabled() || device.isSpeakerDevice())
-            continue;
-
-        if (!captureDevice)
-            captureDevice = device;
-
-        if (device.isDefault()) {
-            captureDevice = device;
-            break;
-        }
-    }
-    return captureDevice;
-}
-
-CaptureSourceOrError SpeechRecognitionCaptureSource::createRealtimeMediaSource(const CaptureDevice& captureDevice, PageIdentifier pageIdentifier)
-{
-    return RealtimeMediaSourceCenter::singleton().audioCaptureFactory().createAudioCaptureSource(captureDevice, { "SpeechID"_s, "SpeechID"_s }, { }, pageIdentifier);
-}
-
-SpeechRecognitionCaptureSource::SpeechRecognitionCaptureSource(SpeechRecognitionConnectionClientIdentifier clientIdentifier, DataCallback&& dataCallback, StateUpdateCallback&& stateUpdateCallback, Ref<RealtimeMediaSource>&& source)
-    : m_impl(makeUniqueRef<SpeechRecognitionCaptureSourceImpl>(clientIdentifier, WTF::move(dataCallback), WTF::move(stateUpdateCallback), WTF::move(source)))
-{
-}
-
-#endif
 
 } // namespace WebCore

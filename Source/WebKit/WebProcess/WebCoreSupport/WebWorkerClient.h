@@ -26,7 +26,6 @@
 #pragma once
 
 #include "Connection.h"
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "WebGPUIdentifier.h"
 #include <WebCore/WorkerClient.h>
 #include <wtf/TZoneMalloc.h>

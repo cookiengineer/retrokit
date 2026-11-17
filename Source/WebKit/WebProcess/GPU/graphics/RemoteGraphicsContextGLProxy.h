@@ -34,8 +34,9 @@
 #include "RemoteGraphicsContextGLMessages.h"
 #include "RemoteRenderingBackendIdentifier.h"
 #include "RemoteResourceCacheProxy.h"
-#include "SharedVideoFrame.h"
 #include "StreamClientConnection.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/GCGLSpan.h>
 #include <WebCore/GraphicsContextGL.h>
 #include <WebCore/NotImplemented.h>
@@ -92,9 +93,6 @@ public:
     GCGLint maxArrayTextureLayers() final { return m_maxArrayTextureLayers; }
 
     RefPtr<WebCore::NativeImage> copyNativeImageYFlipped(SurfaceBuffer) final;
-#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
-    RefPtr<WebCore::VideoFrame> surfaceBufferToVideoFrame(SurfaceBuffer) final;
-#endif
     GCGLErrorCodeSet getErrors() final;
 #if ENABLE(VIDEO)
     bool copyTextureFromVideoFrame(WebCore::VideoFrame&, PlatformGLObject texture, GCGLenum target, GCGLint level, GCGLenum internalFormat, GCGLenum format, GCGLenum type , bool premultiplyAlpha, bool flipY) final;

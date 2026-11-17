@@ -53,6 +53,7 @@
 #include "WebGPUObjectHeap.h"
 #include "WebGPUOutOfMemoryError.h"
 #include "WebGPUValidationError.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/VideoFrame.h>
 #include <WebCore/WebGPUBindGroup.h>
 #include <WebCore/WebGPUBindGroupDescriptor.h>

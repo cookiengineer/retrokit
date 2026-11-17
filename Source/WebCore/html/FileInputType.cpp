@@ -302,9 +302,6 @@ FileChooserSettings FileInputType::fileChooserSettings() const
     settings.acceptMIMETypes = element->acceptMIMETypes();
     settings.acceptFileExtensions = element->acceptFileExtensions();
     settings.selectedFiles = protect(files())->paths();
-#if ENABLE(MEDIA_CAPTURE)
-    settings.mediaCaptureType = element->mediaCaptureType();
-#endif
     return settings;
 }
 

@@ -15,7 +15,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/GPUProcess/graphics/Model"
     "${WEBKIT_DIR}/GPUProcess/graphics/WebGPU"
     "${WEBKIT_DIR}/GPUProcess/media"
-    "${WEBKIT_DIR}/GPUProcess/webrtc"
     "${WEBKIT_DIR}/ModelProcess"
     "${WEBKIT_DIR}/NetworkProcess"
     "${WEBKIT_DIR}/NetworkProcess/Authentication"
@@ -31,7 +30,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/NetworkProcess/cache"
     "${WEBKIT_DIR}/NetworkProcess/storage"
     "${WEBKIT_DIR}/NetworkProcess/watchos"
-    "${WEBKIT_DIR}/NetworkProcess/webrtc"
     "${WEBKIT_DIR}/NetworkProcess/webtransport"
     "${WEBKIT_DIR}/Platform"
     "${WEBKIT_DIR}/Platform/IPC"
@@ -104,10 +102,8 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/Launching"
     "${WEBKIT_DIR}/WebProcess/Media"
     "${WEBKIT_DIR}/WebProcess/MediaCache"
-    "${WEBKIT_DIR}/WebProcess/MediaStream"
     "${WEBKIT_DIR}/WebProcess/Model"
     "${WEBKIT_DIR}/WebProcess/Network"
-    "${WEBKIT_DIR}/WebProcess/Network/webrtc"
     "${WEBKIT_DIR}/WebProcess/Notifications"
     "${WEBKIT_DIR}/WebProcess/OriginData"
     "${WEBKIT_DIR}/WebProcess/Plugins"
@@ -233,11 +229,9 @@ set(WebKit_MESSAGES_IN_FILES
     GPUProcess/media/RemoteMediaResourceLoader
     GPUProcess/media/RemoteRemoteCommandListenerProxy
     GPUProcess/media/RemoteVideoFrameObjectHeap
-
-    GPUProcess/webrtc/LibWebRTCCodecsProxy
-    GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager
     GPUProcess/webrtc/RemoteSampleBufferDisplayLayer
     GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager
+
 
     ModelProcess/ModelConnectionToWebProcess
     ModelProcess/ModelProcess
@@ -264,12 +258,7 @@ set(WebKit_MESSAGES_IN_FILES
 
     NetworkProcess/storage/NetworkStorageManager
 
-    NetworkProcess/webrtc/NetworkMDNSRegister
-    NetworkProcess/webrtc/NetworkRTCMonitor
-    NetworkProcess/webrtc/NetworkRTCProvider
-    NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy
 
-    NetworkProcess/webrtc/rice/RiceBackend
 
     NetworkProcess/webtransport/NetworkTransportSession
 
@@ -290,7 +279,6 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/Media/RemoteMediaSessionCoordinatorProxy
     UIProcess/Media/RemoteMediaSessionManagerProxy
 
-    UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager
     UIProcess/SpeechRecognitionServer
     UIProcess/VisitedLinkStore
     UIProcess/WebBackForwardList
@@ -354,10 +342,9 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/GPU/media/RemoteCDMInstanceSession
     WebProcess/GPU/media/RemoteLegacyCDMSession
     WebProcess/GPU/media/RemoteRemoteCommandListener
-
-    WebProcess/GPU/webrtc/LibWebRTCCodecs
     WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor
     WebProcess/GPU/webrtc/SampleBufferDisplayLayer
+
 
 
     WebProcess/Inspector/RemoteWebInspectorUI
@@ -372,12 +359,7 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/Model/ModelProcessConnection
     WebProcess/Model/ModelProcessModelPlayer
 
-    WebProcess/Network/webrtc/LibWebRTCNetwork
-    WebProcess/Network/webrtc/RTCDataChannelRemoteManager
-    WebProcess/Network/webrtc/WebRTCMonitor
-    WebProcess/Network/webrtc/WebRTCResolver
 
-    WebProcess/Network/webrtc/rice/RiceBackendProxy
 
     WebProcess/Network/NetworkProcessConnection
     WebProcess/Network/WebResourceLoader
@@ -386,7 +368,6 @@ set(WebKit_MESSAGES_IN_FILES
 
     WebProcess/Notifications/WebNotificationManager
 
-    WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager
 
     WebProcess/Storage/WebSharedWorkerContextManagerConnection
     WebProcess/Storage/WebSharedWorkerObjectConnection
@@ -510,8 +491,6 @@ set(WebKit_SERIALIZATION_IN_FILES
     Shared/PrintInfo.serialization.in
     Shared/ProcessQualified.serialization.in
     Shared/ProvisionalFrameCreationParameters.serialization.in
-    Shared/RTCNetwork.serialization.in
-    Shared/RTCPacketOptions.serialization.in
     Shared/RemoteWebTouchEvent.serialization.in
     Shared/RemoteWorkerInitializationData.serialization.in
     Shared/RemoteWorkerType.serialization.in
@@ -708,11 +687,9 @@ set(WebKit_SERIALIZATION_IN_FILES
     WebProcess/GPU/media/RemoteMediaPlayerState.serialization.in
     WebProcess/GPU/media/RemoteVideoFrameProxyProperties.serialization.in
 
-    WebProcess/GPU/webrtc/SharedVideoFrame.serialization.in
 
     WebProcess/Media/RemoteMediaSessionState.serialization.in
 
-    WebProcess/MediaStream/MediaDeviceSandboxExtensions.serialization.in
 
     WebProcess/Model/ModelProcessConnectionInfo.serialization.in
 
@@ -735,7 +712,6 @@ set(WebCore_SERIALIZATION_IN_FILES
     InbandTextTrackPrivate.serialization.in
     IndexedDB.serialization.in
     LayoutMilestones.serialization.in
-    MDNSRegisterError.serialization.in
     MediaProducer.serialization.in
     PlatformEvent.serialization.in
     PlatformMediaSession.serialization.in
@@ -788,17 +764,12 @@ else ()
 endif ()
 
 if (USE_LIBWEBRTC)
-    list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/libwebrtc/Source/"
-        "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
-        "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/abseil-cpp")
     if (NOT APPLE)
-        list(APPEND WebKit_LIBRARIES webrtc)
     endif ()
 endif ()
 
 if (USE_GSTREAMER_WEBRTC AND USE_LIBRICE)
     list(APPEND WebKit_LIBRARIES Rice::Io)
-    list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES "${WEBKIT_DIR}/NetworkProcess/webrtc/rice")
 endif ()
 
 if (ATOMICS_REQUIRE_LIBATOMIC)
@@ -1051,7 +1022,6 @@ macro(GENERATE_MESSAGE_SOURCES _output_source _inputs)
             ${_absolute_outputs}
         MAIN_DEPENDENCY ${WEBKIT_DIR}/Scripts/generate-message-receiver.py
         DEPENDS
-            ${WEBKIT_DIR}/Scripts/webkit/__init__.py
             ${WEBKIT_DIR}/Scripts/webkit/messages.py
             ${WEBKIT_DIR}/Scripts/webkit/model.py
             ${WEBKIT_DIR}/Scripts/webkit/parser.py
@@ -1247,7 +1217,6 @@ set(WebKit_JSON_RPC_PROTOCOL_GENERATOR_SCRIPTS
     ${PROTOCOL_GENERATOR_SCRIPTS_DIR}/codegen/generate_cpp_protocol_types_implementation.py
     ${PROTOCOL_GENERATOR_SCRIPTS_DIR}/codegen/generator.py
     ${PROTOCOL_GENERATOR_SCRIPTS_DIR}/codegen/generator_templates.py
-    ${PROTOCOL_GENERATOR_SCRIPTS_DIR}/codegen/models.py
 )
 
 set(WebKit_AUTOMATION_PROTOCOL_GENERATOR_INPUTS

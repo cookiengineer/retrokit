@@ -110,11 +110,6 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     EstablishSharedWorkerContextConnection(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::Site site, enum:bool WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicy) -> ()
     CloseSharedWorkerContextConnection()
 
-    CreateRTCProvider() -> ()
-#if ENABLE(WEB_RTC)
-    ConnectToRTCDataChannelRemoteSource(struct WebCore::RTCDataChannelIdentifier source, struct WebCore::RTCDataChannelIdentifier handler) -> (std::optional<bool> result)
-#endif
-
     CreateNewMessagePortChannel(struct WebCore::MessagePortIdentifier port1, struct WebCore::MessagePortIdentifier port2)
     EntangleLocalPortInThisProcessToRemote(struct WebCore::MessagePortIdentifier local, struct WebCore::MessagePortIdentifier remote)
     MessagePortDisentangled(struct WebCore::MessagePortIdentifier local)

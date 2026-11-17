@@ -94,7 +94,6 @@
 #include "WebsiteDataStore.h"
 #include "WebsiteDataStoreParameters.h"
 #include <JavaScriptCore/JSCInlines.h>
-#include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
 #include <WebCore/PlatformMediaSessionManager.h>
@@ -2327,58 +2326,23 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
 
 void WebProcessPool::addMockMediaDevice(const MockMediaDevice& device)
 {
-#if ENABLE(MEDIA_STREAM)
-    MockRealtimeMediaSourceCenter::addDevice(device);
-    sendToAllProcesses(Messages::WebProcess::AddMockMediaDevice { device });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
-    protect(ensureGPUProcess())->addMockMediaDevice(device);
-#endif
-#endif
 }
 
 void WebProcessPool::clearMockMediaDevices()
 {
-#if ENABLE(MEDIA_STREAM)
-    MockRealtimeMediaSourceCenter::setDevices({ });
-    sendToAllProcesses(Messages::WebProcess::ClearMockMediaDevices { });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
-    protect(ensureGPUProcess())->clearMockMediaDevices();
-#endif
-#endif
 }
 
 void WebProcessPool::removeMockMediaDevice(const String& persistentId)
 {
-#if ENABLE(MEDIA_STREAM)
-    MockRealtimeMediaSourceCenter::removeDevice(persistentId);
-    sendToAllProcesses(Messages::WebProcess::RemoveMockMediaDevice { persistentId });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
-    protect(ensureGPUProcess())->removeMockMediaDevice(persistentId);
-#endif
-#endif
 }
 
 
 void WebProcessPool::setMockMediaDeviceIsEphemeral(const String& persistentId, bool isEphemeral)
 {
-#if ENABLE(MEDIA_STREAM)
-    MockRealtimeMediaSourceCenter::setDeviceIsEphemeral(persistentId, isEphemeral);
-    sendToAllProcesses(Messages::WebProcess::SetMockMediaDeviceIsEphemeral { persistentId, isEphemeral });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
-    protect(ensureGPUProcess())->setMockMediaDeviceIsEphemeral(persistentId, isEphemeral);
-#endif
-#endif
 }
 
 void WebProcessPool::resetMockMediaDevices()
 {
-#if ENABLE(MEDIA_STREAM)
-    MockRealtimeMediaSourceCenter::resetDevices();
-    sendToAllProcesses(Messages::WebProcess::ResetMockMediaDevices { });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
-    protect(ensureGPUProcess())->resetMockMediaDevices();
-#endif
-#endif
 }
 
 void WebProcessPool::didCollectPrewarmInformation(const WebCore::RegistrableDomain& registrableDomain, const WebCore::PrewarmInformation& prewarmInformation)

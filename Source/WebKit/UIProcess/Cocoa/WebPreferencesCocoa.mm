@@ -30,9 +30,6 @@
 #import <WebCore/RealtimeMediaSourceCenter.h>
 #import <wtf/text/MakeString.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "UserMediaPermissionRequestManagerProxy.h"
-#endif
 
 namespace WebKit {
 
@@ -139,15 +136,6 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
-#if ENABLE(MEDIA_STREAM)
-        // NOTE: This is set here, and does not setting the default using the 'defaultValue' mechanism, because the
-        // 'defaultValue' must be the same in both the UIProcess and WebProcess, which may not be true for audio
-        // and video capture state as the WebProcess is not entitled to use the camera or microphone by default.
-        // If other preferences need to dynamically set the initial value based on host app state, we should extended
-        // the declarative format rather than adding more special cases here.
-        m_store.setBoolValueForKey(WebPreferencesKey::mediaDevicesEnabledKey(), UserMediaPermissionRequestManagerProxy::permittedToCaptureAudio() || UserMediaPermissionRequestManagerProxy::permittedToCaptureVideo());
-        m_store.setBoolValueForKey(WebPreferencesKey::interruptAudioOnPageVisibilityChangeEnabledKey(),  WebCore::RealtimeMediaSourceCenter::shouldInterruptAudioOnPageVisibilityChange());
-#endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
         m_store.setBoolValueForKey(WebPreferencesKey::iFrameResourceMonitoringEnabledKey(), defaultIFrameResourceMonitoringEnabled());

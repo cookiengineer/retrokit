@@ -43,14 +43,12 @@
 #include "Page.h"
 #include "PlatformStrategies.h"
 #include "ProcessIdentifier.h"
-#include "RTCDataChannelRemoteHandlerConnection.h"
 #include "SharedWorker.h"
 #include "SharedWorkerContextManager.h"
 #include "SharedWorkerGlobalScope.h"
 #include "SharedWorkerThread.h"
 #include "SocketProvider.h"
 #include "StorageConnection.h"
-#include "WebRTCProvider.h"
 #include "WorkerClient.h"
 #include "WorkerFetchResult.h"
 #include "WorkerInitializationData.h"
@@ -195,11 +193,6 @@ RefPtr<IDBClient::IDBConnectionProxy> SharedWorkerThreadProxy::createIDBConnecti
     return nullptr;
 }
 
-RefPtr<RTCDataChannelRemoteHandlerConnection> SharedWorkerThreadProxy::createRTCDataChannelRemoteHandlerConnection()
-{
-    ASSERT(isMainThread());
-    return m_page->webRTCProvider().createRTCDataChannelRemoteHandlerConnection();
-}
 
 ScriptExecutionContextIdentifier SharedWorkerThreadProxy::loaderContextIdentifier() const
 {

@@ -677,19 +677,9 @@ static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy po
     return protect(*_preferences)->peerConnectionEnabled();
 }
 
-- (void)_setPeerConnectionEnabled:(BOOL)enabled
-{
-    protect(*_preferences)->setPeerConnectionEnabled(enabled);
-}
-
 - (BOOL)_mediaDevicesEnabled
 {
     return protect(*_preferences)->mediaDevicesEnabled();
-}
-
-- (void)_setMediaDevicesEnabled:(BOOL)enabled
-{
-    protect(*_preferences)->setMediaDevicesEnabled(enabled);
 }
 
 - (BOOL)_getUserMediaRequiresFocus
@@ -717,11 +707,6 @@ static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy po
     return protect(*_preferences)->mockCaptureDevicesEnabled();
 }
 
-- (void)_setMockCaptureDevicesEnabled:(BOOL)enabled
-{
-    protect(*_preferences)->setMockCaptureDevicesEnabled(enabled);
-}
-
 - (BOOL)_mockCaptureDevicesPromptEnabled
 {
     return protect(*_preferences)->mockCaptureDevicesPromptEnabled();
@@ -735,11 +720,6 @@ static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy po
 - (BOOL)_mediaCaptureRequiresSecureConnection
 {
     return protect(*_preferences)->mediaCaptureRequiresSecureConnection();
-}
-
-- (void)_setMediaCaptureRequiresSecureConnection:(BOOL)requiresSecureConnection
-{
-    protect(*_preferences)->setMediaCaptureRequiresSecureConnection(requiresSecureConnection);
 }
 
 - (double)_inactiveMediaCaptureStreamRepromptIntervalInMinutes
@@ -785,11 +765,6 @@ static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy po
 - (BOOL)_iceCandidateFilteringEnabled
 {
     return protect(*_preferences)->iceCandidateFilteringEnabled();
-}
-
-- (void)_setICECandidateFilteringEnabled:(BOOL)enabled
-{
-    protect(*_preferences)->setICECandidateFilteringEnabled(enabled);
 }
 
 - (void)_setJavaScriptCanAccessClipboard:(BOOL)javaScriptCanAccessClipboard

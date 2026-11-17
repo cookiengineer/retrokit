@@ -151,7 +151,6 @@
 #include "PointerLockController.h"
 #include "ProgressTracker.h"
 #include "Quirks.h"
-#include "RTCController.h"
 #include "Range.h"
 #include "RemoteFrame.h"
 #include "RemoteFrameLayoutInfo.h"
@@ -199,7 +198,6 @@
 #include "ThermalMitigationNotifier.h"
 #include "UserContentProvider.h"
 #include "UserContentURLPattern.h"
-#include "UserMediaController.h"
 #include "UserScript.h"
 #include "UserStyleSheet.h"
 #include "ValidationMessageClient.h"
@@ -208,7 +206,6 @@
 #include "VisitedLinkStore.h"
 #include "VoidCallback.h"
 #include "WebCoreJSClientData.h"
-#include "WebRTCProvider.h"
 #include "WheelEventDeltaFilter.h"
 #include "WheelEventTestMonitor.h"
 #include "Widget.h"
@@ -408,8 +405,6 @@ Page::Page(PageConfiguration&& pageConfiguration)
     , m_speechSynthesisClient(WTF::move(pageConfiguration.speechSynthesisClient))
 #endif
     , m_speechRecognitionProvider((WTF::move(pageConfiguration.speechRecognitionProvider)))
-    , m_webRTCProvider(WTF::move(pageConfiguration.webRTCProvider))
-    , m_rtcController(RTCController::create())
 #if PLATFORM(IOS_FAMILY)
     , m_canShowWhileLocked(pageConfiguration.canShowWhileLocked)
 #endif
@@ -788,12 +783,6 @@ RefPtr<StringCallback> NODELETE Page::consoleMessageListenerForTesting() const
 
 void Page::settingsDidChange()
 {
-#if ENABLE(WEB_RTC)
-    m_webRTCProvider->setH265Support(settings().webRTCH265CodecEnabled());
-    m_webRTCProvider->setVP9Support(settings().webRTCVP9Profile0CodecEnabled(), settings().webRTCVP9Profile2CodecEnabled());
-    m_webRTCProvider->setAV1Support(settings().webRTCAV1CodecEnabled());
-    m_webRTCProvider->setPortAllocatorRange(settings().webRTCUDPPortRange());
-#endif
 }
 
 std::optional<AXTreeData> Page::accessibilityTreeData(IncludeDOMInfo includeDOMInfo) const
@@ -3177,23 +3166,10 @@ void Page::mediaEngineChanged(HTMLMediaElement& mediaElement)
 
 void Page::setMuted(MediaProducerMutedStateFlags mutedState)
 {
-#if ENABLE(MEDIA_STREAM) && ENABLE(MEDIA_SESSION)
-    bool cameraCaptureStateDidChange = mutedState.contains(MediaProducerMutedState::VideoCaptureIsMuted) != m_mutedState.contains(MediaProducerMutedState::VideoCaptureIsMuted);
-    bool microphoneCaptureStateDidChange = mutedState.contains(MediaProducerMutedState::AudioCaptureIsMuted) != m_mutedState.contains(MediaProducerMutedState::AudioCaptureIsMuted);
-    bool screenshareCaptureStateDidChange = (mutedState.contains(MediaProducerMutedState::ScreenCaptureIsMuted) || mutedState.contains(MediaProducerMutedState::WindowCaptureIsMuted)) != (m_mutedState.contains(MediaProducerMutedState::ScreenCaptureIsMuted) || m_mutedState.contains(MediaProducerMutedState::WindowCaptureIsMuted));
-#endif
 
     m_mutedState = mutedState;
 
     forEachDocument([&] (Document& document) {
-#if ENABLE(MEDIA_STREAM) && ENABLE(MEDIA_SESSION)
-        if (cameraCaptureStateDidChange)
-            document.cameraCaptureStateDidChange();
-        if (microphoneCaptureStateDidChange)
-            document.microphoneCaptureStateDidChange();
-        if (screenshareCaptureStateDidChange)
-            document.screenshareCaptureStateDidChange();
-#endif
         document.pageMutedStateDidChange();
     });
 }
@@ -3212,52 +3188,10 @@ void Page::setShouldSuppressHDR(bool shouldSuppressHDR)
 #endif
 }
 
-#if ENABLE(MEDIA_STREAM)
-static inline MediaProducerMutedStateFlags toMediaProducerMutedStateFlags(MediaProducerMediaCaptureKind kind)
-{
-    switch (kind) {
-    case MediaProducerMediaCaptureKind::Microphone:
-        return MediaProducerMutedState::AudioCaptureIsMuted;
-    case MediaProducerMediaCaptureKind::Camera:
-        return MediaProducerMutedState::VideoCaptureIsMuted;
-    case MediaProducerMediaCaptureKind::Display:
-        return { MediaProducerMutedState::ScreenCaptureIsMuted, MediaProducerMutedState::WindowCaptureIsMuted };
-    case MediaProducerMediaCaptureKind::SystemAudio:
-    case MediaProducerMediaCaptureKind::EveryKind:
-        ASSERT_NOT_REACHED();
-    }
-    return { };
-}
-
-static inline MediaProducerMutedStateFlags computeCaptureMutedState(MediaProducerMutedStateFlags currentState, bool isActive, MediaProducerMediaCaptureKind kind)
-{
-    auto flagsToUpdate = toMediaProducerMutedStateFlags(kind);
-    return isActive ? (currentState - flagsToUpdate) : (currentState | flagsToUpdate);
-}
-
-void Page::updateCaptureState(bool isActive, MediaProducerMediaCaptureKind kind)
-{
-    m_mutedState = computeCaptureMutedState(m_mutedState, isActive, kind);
-    forEachDocument([&] (Document& document) {
-        document.pageMutedStateDidChange();
-    });
-}
-
-void Page::voiceActivityDetected()
-{
-    if (auto* controller = UserMediaController::from(this))
-        controller->voiceActivityDetected();
-}
-#endif
 
 void Page::stopMediaCapture(MediaProducerMediaCaptureKind kind)
 {
     UNUSED_PARAM(kind);
-#if ENABLE(MEDIA_STREAM)
-    forEachDocument([kind] (Document& document) {
-        document.stopMediaCapture(kind);
-    });
-#endif
 }
 
 bool Page::mediaPlaybackExists()
@@ -4414,22 +4348,6 @@ Document* Page::outermostFullscreenDocument() const
 #endif
 }
 
-void Page::disableICECandidateFiltering()
-{
-    m_shouldEnableICECandidateFilteringByDefault = false;
-#if ENABLE(WEB_RTC)
-    m_rtcController->disableICECandidateFilteringForAllOrigins();
-#endif
-}
-
-void Page::enableICECandidateFiltering()
-{
-    m_shouldEnableICECandidateFilteringByDefault = true;
-#if ENABLE(WEB_RTC)
-    m_rtcController->enableICECandidateFiltering();
-#endif
-}
-
 LocalFrame* Page::localMainFrame() const
 {
     return dynamicDowncast<LocalFrame>(mainFrame());
@@ -4463,9 +4381,6 @@ void Page::didChangeMainDocument(Document* newDocument)
     if (settings().siteIsolationEnabled())
         documentSyncClient().broadcastAllDocumentSyncDataToOtherProcesses(protect(m_topDocumentSyncData).get());
 
-#if ENABLE(WEB_RTC)
-    m_rtcController->reset(m_shouldEnableICECandidateFilteringByDefault);
-#endif
     m_pointerCaptureController->reset();
 
     clearSampledPageTopColor();

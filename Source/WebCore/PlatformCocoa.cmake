@@ -106,19 +106,6 @@ if (ACCESSIBILITYSUPPORT_LIBRARY)
     list(APPEND WebCore_LIBRARIES ${ACCESSIBILITYSUPPORT_LIBRARY})
 endif ()
 
-if (USE_LIBWEBRTC)
-    list(APPEND WebCore_PRIVATE_LIBRARIES webrtc opus vpx webm yuv libsrtp webrtc_objc_categories)
-else ()
-    set(_webm_parser_dir "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/libwebm/webm_parser")
-    file(GLOB _webm_parser_srcs "${_webm_parser_dir}/src/*.cc")
-    add_library(WebMParser OBJECT ${_webm_parser_srcs})
-    target_include_directories(WebMParser PRIVATE "${_webm_parser_dir}/include" "${_webm_parser_dir}")
-    target_compile_definitions(WebMParser PRIVATE WEBRTC_WEBKIT_BUILD)
-    target_compile_options(WebMParser PRIVATE -w)
-    list(APPEND WebCore_PRIVATE_LIBRARIES WebMParser)
-    unset(_webm_parser_dir)
-    unset(_webm_parser_srcs)
-endif ()
 
 if (ENABLE_AV1)
     list(APPEND WebCore_PRIVATE_LIBRARIES dav1d)
@@ -145,39 +132,13 @@ if (DATADETECTORSCORE_FRAMEWORK)
     list(APPEND WebCore_LIBRARIES ${DATADETECTORSCORE_FRAMEWORK})
 endif ()
 
-set(_libwebrtc_fwd "${CMAKE_BINARY_DIR}/libwebrtc-forwarding")
-file(MAKE_DIRECTORY "${_libwebrtc_fwd}/libwebrtc")
-foreach (_h opus_defines.h opus_types.h)
-    if (NOT EXISTS "${_libwebrtc_fwd}/libwebrtc/${_h}")
-        file(CREATE_LINK
-            "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/opus/src/include/${_h}"
-            "${_libwebrtc_fwd}/libwebrtc/${_h}"
-            SYMBOLIC)
-    endif ()
-endforeach ()
-if (NOT EXISTS "${_libwebrtc_fwd}/webm")
-    file(CREATE_LINK
-        "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/libwebm"
-        "${_libwebrtc_fwd}/webm"
-        SYMBOLIC)
-endif ()
-unset(_libwebrtc_fwd)
-unset(_h)
 
-list(APPEND WebCore_PRIVATE_DEFINITIONS WEBRTC_WEBKIT_BUILD)
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source/WebCore/accessibility/cocoa"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/Modules/ShapeDetection/Implementation/Cocoa"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/Modules/speech/cocoa"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/video-codecs/cocoa"
-    "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/mediastream"
-    "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/mediastream/cocoa"
-    "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/libwebm/webm_parser/include"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/libwebm"
-    "${CMAKE_BINARY_DIR}/libwebrtc-forwarding"
     "${WEBCORE_DIR}/Modules/applepay-ams-ui"
     "${WEBCORE_DIR}/Modules/webauthn/apdu"
     "${WEBCORE_DIR}/bridge/objc"
@@ -217,9 +178,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/re"
     "${WEBCORE_DIR}/platform/image-decoders"
     "${WEBCORE_DIR}/platform/mediacapabilities"
-    "${WEBCORE_DIR}/platform/mediarecorder/cocoa"
-    "${WEBCORE_DIR}/platform/mediastream/cocoa"
-    "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
     "${WEBCORE_DIR}/platform/network/cocoa"
     "${WEBCORE_DIR}/platform/network/cf"
     "${WEBCORE_DIR}/platform/text/cf"
@@ -241,7 +199,6 @@ list(APPEND WebCore_SOURCES
 
     Modules/paymentrequest/MerchantValidationEvent.cpp
 
-    Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
 
     Modules/webauthn/AuthenticationExtensionsClientInputs.cpp
     Modules/webauthn/AuthenticationExtensionsClientOutputs.cpp
@@ -435,14 +392,8 @@ list(APPEND WebCore_SOURCES
 
     platform/mac/WebCoreView.mm
 
-    platform/mediarecorder/MediaRecorderPrivateWriter.cpp
 
-    platform/mediastream/cocoa/CoreAudioCaptureUnit.mm
-    platform/mediastream/cocoa/MockRealtimeVideoSourceCocoa.mm
-    platform/mediastream/cocoa/RealtimeOutgoingVideoSourceCocoa.cpp
 
-    platform/mediastream/libwebrtc/LibWebRTCAudioModule.cpp
-    platform/mediastream/libwebrtc/LibWebRTCDav1dDecoder.cpp
 
     platform/network/cf/CertificateInfoCFNet.cpp
     platform/network/cf/DNSResolveQueueCFNet.cpp
@@ -682,10 +633,6 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/mediasession/MediaMetadata.h
     Modules/mediasession/MediaMetadataInit.h
 
-    Modules/mediastream/RTCIceCandidate.h
-    Modules/mediastream/RTCRtpTransceiver.h
-    Modules/mediastream/RTCSessionDescription.h
-    Modules/mediastream/RTCStatsReport.h
 
     Modules/permissions/MainThreadPermissionObserver.h
     Modules/permissions/MainThreadPermissionObserverIdentifier.h
@@ -868,12 +815,7 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/graphics/transforms/TransformState.h
 
-    platform/mediarecorder/MediaRecorderPrivateAVFImpl.h
 
-    platform/mediastream/AudioTrackPrivateMediaStream.h
-    platform/mediastream/RTCIceConnectionState.h
-    platform/mediastream/RTCPeerConnectionHandlerClient.h
-    platform/mediastream/VideoTrackPrivateMediaStream.h
 
     platform/mock/mediasource/MockMediaSourcePrivate.h
     platform/mock/mediasource/MockSourceBufferPrivate.h
@@ -1117,7 +1059,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/avfoundation/objc/AVAssetMIMETypeCache.h
     platform/graphics/avfoundation/objc/ImageDecoderAVFObjC.h
     platform/graphics/avfoundation/objc/LocalSampleBufferDisplayLayer.h
-    platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.h
     platform/graphics/avfoundation/objc/MediaSampleAVFObjC.h
     platform/graphics/avfoundation/objc/VideoLayerManagerObjC.h
 
@@ -1230,30 +1171,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ios/wak/WebCoreThreadRun.h
     platform/ios/wak/WebCoreThreadSystemInterface.h
 
-    platform/mediarecorder/MediaRecorderPrivateOptions.h
 
-    platform/mediastream/AudioMediaStreamTrackRenderer.h
-    platform/mediastream/RealtimeIncomingVideoSource.h
-    platform/mediastream/RealtimeMediaSourceIdentifier.h
 
-    platform/mediastream/cocoa/AVVideoCaptureSource.h
-    platform/mediastream/cocoa/AudioMediaStreamTrackRendererInternalUnit.h
-    platform/mediastream/cocoa/AudioMediaStreamTrackRendererUnit.h
-    platform/mediastream/cocoa/BaseAudioCaptureUnit.h
-    platform/mediastream/cocoa/BaseAudioMediaStreamTrackRendererUnit.h
-    platform/mediastream/cocoa/CoreAudioCaptureDeviceManager.h
-    platform/mediastream/cocoa/CoreAudioCaptureSource.h
-    platform/mediastream/cocoa/CoreAudioCaptureUnit.h
-    platform/mediastream/cocoa/DisplayCaptureSourceCocoa.h
-    platform/mediastream/cocoa/RealtimeIncomingVideoSourceCocoa.h
-    platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.h
-    platform/mediastream/cocoa/ScreenCaptureKitSharingSessionManager.h
-    platform/mediastream/cocoa/WebAudioSourceProviderCocoa.h
 
-    platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.h
 
-    platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.h
-    platform/mediastream/libwebrtc/VideoFrameLibWebRTC.h
 
     platform/network/cf/AuthenticationChallenge.h
     platform/network/cf/CertificateInfo.h
@@ -1276,7 +1197,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/ios/LegacyPreviewLoaderClient.h
     platform/network/ios/WebCoreURLResponseIOS.h
 
-    platform/video-codecs/cocoa/WebRTCVideoDecoder.h
 
 
     rendering/cocoa/RenderThemeCocoa.h

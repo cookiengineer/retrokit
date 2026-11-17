@@ -32,7 +32,6 @@
 #include "AnimationTimeline.h"
 #include "AnimationTimelinesController.h"
 #include "AudioSession.h"
-#include "AudioTrackPrivateMediaStream.h"
 #include "Autofill.h"
 #include "BackForwardCache.h"
 #include "BackForwardController.h"
@@ -158,7 +157,6 @@
 #include "LogInitialization.h"
 #include "MallocStatistics.h"
 #include "MediaControlsHost.h"
-#include "MediaDevices.h"
 #include "MediaKeySession.h"
 #include "MediaKeys.h"
 #include "MediaMetadata.h"
@@ -168,18 +166,15 @@
 #include "MediaSession.h"
 #include "MediaSessionActionDetails.h"
 #include "MediaStrategy.h"
-#include "MediaStreamTrack.h"
 #include "MemoryCache.h"
 #include "MemoryInfo.h"
 #include "MemoryRelease.h"
 #include "MessagePort.h"
 #include "MockAudioDestinationCocoa.h"
-#include "MockLibWebRTCPeerConnection.h"
 #include "MockPageOverlay.h"
 #include "MockPageOverlayClient.h"
 #include "Navigation.h"
 #include "NavigatorBeacon.h"
-#include "NavigatorMediaDevices.h"
 #include "NetworkLoadInformation.h"
 #include "Page.h"
 #include "PageInspectorController.h"
@@ -199,8 +194,6 @@
 #include "PseudoElement.h"
 #include "PushSubscription.h"
 #include "PushSubscriptionData.h"
-#include "RTCController.h"
-#include "RTCNetworkManager.h"
 #include "Range.h"
 #include "ReadableStream.h"
 #include "RenderEmbeddedObject.h"
@@ -264,7 +257,6 @@
 #include "TypeConversions.h"
 #include "UserContentURLPattern.h"
 #include "UserGestureIndicator.h"
-#include "UserMediaController.h"
 #include "VideoConfiguration.h"
 #include "ViewportArguments.h"
 #include "ViewportConfiguration.h"
@@ -274,7 +266,6 @@
 #include "WebCodecsVideoDecoder.h"
 #include "WebCoreJSClientData.h"
 #include "WebCoreTestSupport.h"
-#include "WebRTCProvider.h"
 #include "WindowProxy.h"
 #include "WorkerThread.h"
 #include "WorkletGlobalScope.h"
@@ -346,26 +337,10 @@
 #include "SpeechSynthesis.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#if PLATFORM(COCOA)
-#include "AudioMediaStreamTrackRendererUnit.h"
-#endif
-#include "MediaStream.h"
-#include "MockRealtimeMediaSourceCenter.h"
-#include "VideoFrame.h"
-#endif
 
-#if ENABLE(MEDIA_RECORDER)
-#include "MediaRecorder.h"
-#include "MediaRecorderPrivateMock.h"
-#endif
 
-#if ENABLE(WEB_RTC)
-#include "RTCPeerConnection.h"
-#endif
 
 #if USE(LIBWEBRTC)
-#include "LibWebRTCProvider.h"
 #endif
 
 #if ENABLE(CONTENT_FILTERING)
@@ -423,7 +398,6 @@
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
 #include "MediaSessionCoordinator.h"
-#include "MockMediaSessionCoordinator.h"
 #include "NavigatorMediaSession.h"
 #endif
 
@@ -605,9 +579,6 @@ Ref<Internals> Internals::create(Document& document)
 
 Internals::~Internals()
 {
-#if ENABLE(MEDIA_STREAM)
-    stopObservingRealtimeMediaSource();
-#endif
 #if ENABLE(MEDIA_SESSION) && ENABLE(WEB_CODECS)
     if (m_artworkImagePromise)
         m_artworkImagePromise->reject(Exception { ExceptionCode::InvalidStateError });
@@ -716,22 +687,6 @@ void Internals::resetToConsistentState(Page& page)
     MemoryPressureHandler::singleton().endSimulatedMemoryWarning();
     MemoryPressureHandler::singleton().endSimulatedMemoryPressure();
 
-#if ENABLE(WEB_RTC)
-    auto& rtcProvider = page.webRTCProvider();
-#if USE(LIBWEBRTC)
-    auto& webRTCProvider = downcast<LibWebRTCProvider>(rtcProvider);
-    WebCore::useRealRTCPeerConnectionFactory(webRTCProvider);
-    webRTCProvider.disableNonLocalhostConnections();
-    webRTCProvider.setVP9HardwareSupportForTesting({ });
-#endif
-    page.settings().setWebRTCEncryptionEnabled(true);
-    rtcProvider.setH265Support(true);
-    rtcProvider.setVP9Support(true, true);
-    rtcProvider.clearFactory();
-#if USE(GSTREAMER_WEBRTC)
-    page.settings().setPeerConnectionEnabled(true);
-#endif
-#endif
 
     page.setFullscreenAutoHideDuration(0_s);
     page.setFullscreenInsets({ });
@@ -742,13 +697,7 @@ void Internals::resetToConsistentState(Page& page)
     MockCDMFactory::unregisterAllMockFactories();
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    page.settings().setInterruptAudioOnPageVisibilityChangeEnabled(false);
-#endif
 
-#if ENABLE(MEDIA_RECORDER)
-    WebCore::MediaRecorder::setCustomPrivateRecorderCreator(nullptr);
-#endif
 
     CanvasBase::setMaxCanvasAreaForTesting(std::nullopt);
     LocalDOMWindow::overrideTransientActivationDurationForTesting(std::nullopt);
@@ -785,9 +734,6 @@ void Internals::resetToConsistentState(Page& page)
 
 Internals::Internals(Document& document)
     : ContextDestructionObserver(&document)
-#if ENABLE(MEDIA_STREAM)
-    , m_orientationNotifier(0)
-#endif
 {
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     if (document.page())
@@ -1942,171 +1888,8 @@ unsigned Internals::minimumExpectedVoiceCount()
 
 #endif
 
-#if ENABLE(WEB_RTC)
 
-void Internals::useMockRTCPeerConnectionFactory(const String& testCase)
-{
-    if (!WebRTCProvider::webRTCAvailable())
-        return;
 
-#if USE(LIBWEBRTC)
-    Document* document = contextDocument();
-    auto* provider = (document && document->page()) ? &downcast<LibWebRTCProvider>(document->page()->webRTCProvider()) : nullptr;
-    WebCore::useMockRTCPeerConnectionFactory(provider, testCase);
-#else
-    UNUSED_PARAM(testCase);
-#endif
-}
-
-void Internals::setICECandidateFiltering(bool enabled)
-{
-    auto* page = contextDocument()->page();
-    if (!page)
-        return;
-
-    auto& rtcController = page->rtcController();
-    if (enabled)
-        rtcController.enableICECandidateFiltering();
-    else
-        rtcController.disableICECandidateFilteringForAllOrigins();
-}
-
-void Internals::setEnumeratingAllNetworkInterfacesEnabled(bool enabled)
-{
-#if USE(LIBWEBRTC)
-    Document* document = contextDocument();
-    auto* page = document->page();
-    if (!page)
-        return;
-    auto& rtcProvider = downcast<LibWebRTCProvider>(page->webRTCProvider());
-    if (enabled)
-        rtcProvider.enableEnumeratingAllNetworkInterfaces();
-    else
-        rtcProvider.disableEnumeratingAllNetworkInterfaces();
-#else
-    UNUSED_PARAM(enabled);
-#endif
-}
-
-void Internals::stopPeerConnection(RTCPeerConnection& connection)
-{
-    ActiveDOMObject& object = connection;
-    object.stop();
-}
-
-void Internals::clearPeerConnectionFactory()
-{
-    if (auto* page = contextDocument()->page())
-        page->webRTCProvider().clearFactory();
-}
-
-void Internals::clearWebRTCCodecsConnection()
-{
-#if USE(LIBWEBRTC)
-    if (auto* page = contextDocument()->page()) {
-        auto& rtcProvider = downcast<LibWebRTCProvider>(page->webRTCProvider());
-        rtcProvider.clearCodecsConnectionForTesting();
-    }
-#endif
-}
-
-void Internals::applyRotationForOutgoingVideoSources(RTCPeerConnection& connection)
-{
-    connection.applyRotationForOutgoingVideoSources();
-}
-
-void Internals::setWebRTCH265Support(bool value)
-{
-    if (auto* page = contextDocument()->page()) {
-        page->webRTCProvider().setH265Support(value);
-        page->webRTCProvider().clearFactory();
-    }
-}
-
-void Internals::setWebRTCVP9Support(bool supportVP9Profile0, bool supportVP9Profile2)
-{
-    if (auto* page = contextDocument()->page()) {
-        page->webRTCProvider().setVP9Support(supportVP9Profile0, supportVP9Profile2);
-        page->webRTCProvider().clearFactory();
-    }
-}
-
-void Internals::disableWebRTCHardwareVP9()
-{
-#if USE(LIBWEBRTC)
-    if (auto* page = contextDocument()->page()) {
-        auto& rtcProvider = downcast<LibWebRTCProvider>(page->webRTCProvider());
-        rtcProvider.setVP9HardwareSupportForTesting(false);
-        rtcProvider.clearFactory();
-    }
-#endif
-}
-
-bool Internals::isSupportingVP9HardwareDecoder() const
-{
-#if USE(LIBWEBRTC)
-    if (auto* page = contextDocument()->page()) {
-        auto& rtcProvider = downcast<LibWebRTCProvider>(page->webRTCProvider());
-        return rtcProvider.isSupportingVP9HardwareDecoder();
-    }
-#endif
-    return false;
-}
-
-bool Internals::isSupportingAV1HardwareDecoder() const
-{
-#if USE(LIBWEBRTC)
-    if (auto* page = contextDocument()->page()) {
-        auto& rtcProvider = downcast<LibWebRTCProvider>(page->webRTCProvider());
-        return rtcProvider.isSupportingAV1HardwareDecoder();
-    }
-#endif
-    return false;
-}
-
-void Internals::isVP9HardwareDecoderUsed(RTCPeerConnection& connection, DOMPromiseDeferred<IDLBoolean>&& promise)
-{
-    connection.gatherDecoderImplementationName([promise = WTF::move(promise)](auto&& name) mutable {
-        promise.resolve(!name.contains("fallback from:"_s) && !name.contains("libvpx"_s));
-    });
-}
-
-void Internals::setEnableWebRTCEncryption(bool value)
-{
-#if USE(LIBWEBRTC)
-    if (auto* page = contextDocument()->page())
-        page->settings().setWebRTCEncryptionEnabled(value);
-#else
-    UNUSED_PARAM(value);
-#endif
-}
-
-bool Internals::hasPeerConnectionEnabledServiceClass(const RTCPeerConnection& connection)
-{
-    return protect(connection.backend())->shouldEnableServiceClass();
-}
-#endif // ENABLE(WEB_RTC)
-
-#if ENABLE(MEDIA_STREAM)
-void Internals::setShouldInterruptAudioOnPageVisibilityChange(bool shouldInterrupt)
-{
-    Document* document = contextDocument();
-    if (auto* page = document->page())
-        page->settings().setInterruptAudioOnPageVisibilityChangeEnabled(shouldInterrupt);
-}
-#endif // ENABLE(MEDIA_STREAM)
-
-#if ENABLE(MEDIA_RECORDER)
-static ExceptionOr<std::unique_ptr<MediaRecorderPrivate>> createRecorderMockSource(MediaStreamPrivate& stream, const MediaRecorderPrivateOptions&)
-{
-    return std::unique_ptr<MediaRecorderPrivate>(new MediaRecorderPrivateMock(stream));
-}
-
-void Internals::setCustomPrivateRecorderCreator()
-{
-    WebCore::MediaRecorder::setCustomPrivateRecorderCreator(createRecorderMockSource);
-}
-#endif // ENABLE(MEDIA_RECORDER)
 
 ExceptionOr<Ref<DOMRect>> Internals::absoluteLineRectFromPoint(int x, int y)
 {
@@ -6777,167 +6560,7 @@ bool Internals::isPageActive() const
     return page.activityState().contains(ActivityState::WindowIsActive);
 }
 
-#if ENABLE(MEDIA_STREAM)
-void Internals::setMockAudioTrackChannelNumber(MediaStreamTrack& track, unsigned short channelNumber)
-{
-    if (auto* source = dynamicDowncast<MockRealtimeAudioSource>(track.source()))
-        source->setChannelCount(channelNumber);
-}
 
-void Internals::setCameraMediaStreamTrackOrientation(MediaStreamTrack& track, int orientation)
-{
-    auto& source = track.source();
-    if (!source.isCaptureSource())
-        return;
-    m_orientationNotifier.orientationChanged(orientation);
-    source.monitorOrientation(m_orientationNotifier);
-}
-
-void Internals::stopObservingRealtimeMediaSource()
-{
-    if (!m_trackSource)
-        return;
-
-    switch (m_trackSource->type()) {
-    case RealtimeMediaSource::Type::Audio:
-        m_trackSource->removeAudioSampleObserver(*this);
-        break;
-    case RealtimeMediaSource::Type::Video:
-        m_trackSource->removeVideoFrameObserver(*this);
-        break;
-    }
-    m_trackSource->removeObserver(*this);
-
-    m_trackSource = nullptr;
-    m_trackAudioSampleCount = 0;
-    m_trackVideoSampleCount = 0;
-}
-
-void Internals::observeMediaStreamTrack(MediaStreamTrack& track)
-{
-    stopObservingRealtimeMediaSource();
-
-    m_trackVideoRotation = -1;
-    m_trackSource = track.source();
-    m_trackSource->addObserver(*this);
-    switch (m_trackSource->type()) {
-    case RealtimeMediaSource::Type::Audio:
-        m_trackSource->addAudioSampleObserver(*this);
-        break;
-    case RealtimeMediaSource::Type::Video:
-        m_trackSource->addVideoFrameObserver(*this);
-        break;
-    }
-}
-
-void Internals::mediaStreamTrackVideoFrameRotation(DOMPromiseDeferred<IDLShort>&& promise)
-{
-    promise.resolve(m_trackVideoRotation);
-}
-
-void Internals::videoFrameAvailable(VideoFrame& videoFrame, VideoFrameTimeMetadata)
-{
-    callOnMainThread([this, weakThis = WeakPtr { *this }, videoFrame = Ref { videoFrame }] {
-        if (!weakThis)
-            return;
-        m_trackVideoSampleCount++;
-        m_trackVideoRotation = static_cast<int>(videoFrame->rotation());
-    });
-}
-
-void Internals::delayMediaStreamTrackSamples(MediaStreamTrack& track, float delay)
-{
-    track.source().delaySamples(Seconds { delay });
-}
-
-void Internals::setMediaStreamTrackMuted(MediaStreamTrack& track, bool muted)
-{
-    track.source().setMuted(muted);
-}
-
-void Internals::removeMediaStreamTrack(MediaStream& stream, MediaStreamTrack& track)
-{
-    stream.allowEventTracksForTesting();
-    stream.privateStream().removeTrack(track.privateTrack());
-}
-
-void Internals::simulateMediaStreamTrackCaptureSourceFailure(MediaStreamTrack& track)
-{
-    track.source().captureFailed();
-}
-
-void Internals::setMediaStreamTrackIdentifier(MediaStreamTrack& track, String&& id)
-{
-    track.setIdForTesting(WTF::move(id));
-}
-
-void Internals::setMediaStreamSourceInterrupted(MediaStreamTrack& track, bool interrupted)
-{
-    track.source().setInterruptedForTesting(interrupted);
-}
-
-const String& Internals::mediaStreamTrackPersistentId(const MediaStreamTrack& track)
-{
-    return track.source().persistentID();
-}
-
-size_t Internals::audioCaptureSourceCount() const
-{
-    if (RefPtr manager = sessionManager())
-        return manager->audioCaptureSourceCount();
-
-    return false;
-}
-
-bool Internals::supportsMultiMicrophoneCaptureWithoutEchoCancellation() const
-{
-#if PLATFORM(MAC)
-    return true;
-#else
-    return false;
-#endif
-}
-
-void Internals::deleteAudioUnit()
-{
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    AudioMediaStreamTrackRendererUnit::singleton().deleteUnitForTesting();
-#endif
-}
-
-bool Internals::isMediaStreamSourceInterrupted(MediaStreamTrack& track) const
-{
-    return track.source().interrupted();
-}
-
-bool Internals::isMediaStreamSourceEnded(MediaStreamTrack& track) const
-{
-    return track.source().isEnded();
-}
-
-bool Internals::isMockRealtimeMediaSourceCenterEnabled()
-{
-    return MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled();
-}
-
-bool Internals::shouldAudioTrackPlay(const AudioTrack& track)
-{
-    auto* audioTrack = dynamicDowncast<AudioTrackPrivateMediaStream>(track.privateTrack());
-    return audioTrack && audioTrack->shouldPlay();
-}
-#endif // ENABLE(MEDIA_STREAM)
-
-#if ENABLE(WEB_RTC)
-String Internals::rtcNetworkInterfaceName() const
-{
-    RefPtr document = contextDocument();
-    RefPtr rtcNetworkManager = document ? document->rtcNetworkManager() : nullptr;
-    if (!rtcNetworkManager)
-        return { };
-
-    return rtcNetworkManager->interfaceNameForTesting();
-}
-#endif // ENABLE(WEB_RTC)
 
 bool Internals::isHardwareVP9DecoderExpected()
 {

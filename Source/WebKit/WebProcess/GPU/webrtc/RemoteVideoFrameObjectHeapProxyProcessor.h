@@ -33,6 +33,7 @@
 #include "RemoteVideoFrameIdentifier.h"
 #include "SharedVideoFrame.h"
 #include "WorkQueueMessageReceiver.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>

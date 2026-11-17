@@ -158,9 +158,6 @@
 #endif
 
 /* FIXME: Remove dependence on ENABLE(WEB_RTC). */
-#if PLATFORM(COCOA) && ENABLE(WEB_RTC)
-#define USE_LIBWEBRTC 1
-#endif
 
 /* FIXME: This is used to "turn on a specific feature of WebKit", so should be converted to an ENABLE macro. */
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)

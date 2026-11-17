@@ -32,6 +32,7 @@
 #include "RemoteQueueMessages.h"
 #include "WebGPUConvertToBackingContext.h"
 #include "WebProcess.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <WebCore/NativeImage.h>
 #include <WebCore/WebCodecsVideoFrame.h>
 #include <wtf/TZoneMallocInlines.h>

@@ -1274,114 +1274,7 @@ bool Quirks::shouldMakeEventListenerPassive(const EventTarget& eventTarget, cons
     return false;
 }
 
-#if ENABLE(MEDIA_STREAM)
-bool Quirks::shouldEnableFacebookFlagQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
 
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableFacebookFlagQuirk);
-}
-
-static Ref<Element> createFacebookFlagElement(Document& document, ASCIILiteral value)
-{
-    Ref text = Text::create(document, makeString("{\"require\":[[\"HasteSupportData\",\"handle\",null,[{\"gkxData\":{\""_s, value, "\":{\"result\":true,\"hash\":null}}}]]]}"_s));
-
-    Ref script = HTMLScriptElement::create(HTMLNames::scriptTag, document, false);
-    Ref { script->dataset() }->setNamedItem("contentLen"_s, AtomString { makeString(text->length()) });
-    script->appendChild(text);
-
-    return script;
-}
-
-static Vector<Ref<Element>> copyElements(const NodeList& nodeList)
-{
-    Vector<Ref<Element>> elements;
-    for (size_t cptr = 0; cptr < nodeList.length(); ++cptr) {
-        if (RefPtr element = dynamicDowncast<Element>(nodeList.item(cptr)))
-            elements.append(element.releaseNonNull());
-    }
-    return elements;
-}
-
-Ref<NodeList> Quirks::applyFacebookFlagQuirk(Document& document, NodeList& nodeList)
-{
-    m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldEnableFacebookFlagQuirk, false);
-
-    if (!document.settings().facebookLiveRecordingQuirkEnabled())
-        return nodeList;
-
-    auto elements = copyElements(nodeList);
-    // Live Streaming flag activation
-    elements.append(createFacebookFlagElement(document, "23460"_s));
-    return StaticElementList::create(WTF::move(elements));
-}
-
-bool Quirks::shouldEnableLegacyGetUserMediaQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableLegacyGetUserMediaQuirk);
-}
-
-// zoom.us rdar://118185086
-bool Quirks::shouldDisableImageCaptureQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDisableImageCaptureQuirk);
-}
-
-bool Quirks::shouldAllowMediaStreamTrackSerializationQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldAllowMediaStreamTrackSerializationQuirk);
-}
-
-bool Quirks::shouldEnableCameraAndMicrophonePermissionStateQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableCameraAndMicrophonePermissionStateQuirk);
-}
-
-bool Quirks::shouldEnableRemoteTrackLabelQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableRemoteTrackLabelQuirk);
-}
-
-bool Quirks::shouldEnableCameraBackgroundPlayback() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableCameraBackgroundPlayback);
-}
-
-bool Quirks::shouldEnableSpeakerSelectionPermissionsPolicyQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableSpeakerSelectionPermissionsPolicyQuirk);
-}
-
-bool Quirks::shouldEnableEnumerateDeviceQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableEnumerateDeviceQuirk);
-}
-#endif
-
-#if ENABLE(WEB_RTC)
-bool Quirks::shouldEnableRTCEncodedStreamsQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableRTCEncodedStreamsQuirk) && m_document && m_document->settings().rtcEncodedStreamsQuirkEnabled();
-}
-#endif
 
 // FIXME: Remove this Quirk if Pinterest decides to trigger this notification from an user gesture (rdar://165745719)
 bool Quirks::shouldAllowNotificationPermissionWithoutUserGesture() const
@@ -3226,24 +3119,6 @@ static void handleGuardianQuirks(QuirksData& quirksData, const URL& /* quirksURL
 }
 #endif // PLATFORM(IOS_FAMILY)
 
-#if ENABLE(MEDIA_STREAM)
-static void handleCodepenQuirks(QuirksData& quirksData, const URL& quirksURL, const String& /* quirksDomainString */, const URL& /* documentURL */)
-{
-    auto topDocumentHost = quirksURL.host();
-    if (topDocumentHost != "codepen.io"_s)
-        return;
-
-    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldEnableSpeakerSelectionPermissionsPolicyQuirk);
-}
-
-static void handleACTestingQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL&  /* documentURL */)
-{
-    QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("actesting.org"_s);
-
-    // actesting.org rdar://124017544
-    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldEnableLegacyGetUserMediaQuirk);
-}
-#endif
 
 static void handleDailyMailCoUkQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL&  /* documentURL */)
 {
@@ -3322,19 +3197,6 @@ static void handleFacebookQuirks(QuirksData& quirksData, const URL& /* quirksURL
         // facebook.com rdar://67273166
         QuirksData::SiteSpecificQuirk::RequiresUserGestureToPauseInPictureInPictureQuirk,
 #endif
-#if ENABLE(MEDIA_STREAM)
-        // facebook.com rdar://158736355
-        QuirksData::SiteSpecificQuirk::ShouldEnableCameraAndMicrophonePermissionStateQuirk,
-        QuirksData::SiteSpecificQuirk::ShouldEnableRemoteTrackLabelQuirk,
-        // facebook.com rdar://41104397
-        QuirksData::SiteSpecificQuirk::ShouldEnableFacebookFlagQuirk,
-        // facebook.com rdar://161269819
-        QuirksData::SiteSpecificQuirk::ShouldEnableEnumerateDeviceQuirk,
-#endif
-#if ENABLE(WEB_RTC)
-        // facebook.com rdar://158736355
-        QuirksData::SiteSpecificQuirk::ShouldEnableRTCEncodedStreamsQuirk,
-#endif
     });
 }
 
@@ -3343,17 +3205,6 @@ static void handleFacebookMessengerQuirks(QuirksData& quirksData, const URL& /* 
     QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("messenger.com"_s);
 
     quirksData.enableQuirks({
-#if ENABLE(MEDIA_STREAM)
-        // facebook.com rdar://158736355
-        QuirksData::SiteSpecificQuirk::ShouldEnableCameraAndMicrophonePermissionStateQuirk,
-        QuirksData::SiteSpecificQuirk::ShouldEnableRemoteTrackLabelQuirk,
-        // facebook.com rdar://161269819
-        QuirksData::SiteSpecificQuirk::ShouldEnableEnumerateDeviceQuirk,
-#endif
-#if ENABLE(WEB_RTC)
-        // facebook.com rdar://158736355
-        QuirksData::SiteSpecificQuirk::ShouldEnableRTCEncodedStreamsQuirk,
-#endif
     });
 }
 
@@ -3551,10 +3402,6 @@ static void handleGoogleQuirks(QuirksData& quirksData, const URL& quirksURL, con
     // sites.google.com rdar://58653069
     bool shouldPreventDispatchOfTouchEventQuirk = topDocumentHost == "sites.google.com"_s;
     quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldPreventDispatchOfTouchEventQuirk, shouldPreventDispatchOfTouchEventQuirk);
-#endif
-#if ENABLE(MEDIA_STREAM)
-    if (topDocumentHost == "meet.google.com"_s)
-        quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldEnableCameraBackgroundPlayback);
 #endif
 #if PLATFORM(MAC)
     // docs.google.com https://bugs.webkit.org/show_bug.cgi?id=161984
@@ -4113,11 +3960,6 @@ static void handleZoomQuirks(QuirksData& quirksData, const URL& /* quirksURL */,
     quirksData.enableQuirks({
         // zoom.com https://bugs.webkit.org/show_bug.cgi?id=223180
         QuirksData::SiteSpecificQuirk::ShouldAutoplayWebAudioForArbitraryUserGestureQuirk,
-#if ENABLE(MEDIA_STREAM)
-        // zoom.us rdar://118185086
-        QuirksData::SiteSpecificQuirk::ShouldDisableImageCaptureQuirk,
-        QuirksData::SiteSpecificQuirk::ShouldAllowMediaStreamTrackSerializationQuirk
-#endif
     });
 }
 
@@ -4175,9 +4017,6 @@ void Quirks::determineRelevantQuirks()
 #if PLATFORM(IOS) || PLATFORM(VISION)
         { "365scores"_s, &handle365ScoresQuirks },
 #endif
-#if ENABLE(MEDIA_STREAM)
-        { "actesting"_s, &handleACTestingQuirks },
-#endif
         { "airindiaexpress"_s, &handleAirIndiaExpressQuirks },
         { "amazon"_s, &handleAmazonQuirks },
         { "apple"_s, &handleAppleQuirks },
@@ -4186,9 +4025,6 @@ void Quirks::determineRelevantQuirks()
         { "att"_s, &handleATTQuirks },
 #endif
         { "bbc"_s, &handleBBCQuirks },
-#if ENABLE(MEDIA_STREAM)
-        { "codepen"_s, &handleCodepenQuirks },
-#endif
         { "bankofamerica"_s, &handleBankOfAmericaQuirks },
         { "bestbuy"_s, &handleBestBuyQuirks },
         { "bing"_s, &handleBingQuirks },

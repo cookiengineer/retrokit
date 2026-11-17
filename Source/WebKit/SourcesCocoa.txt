@@ -58,13 +58,6 @@ NetworkProcess/ios/NetworkProcessIOS.mm @nonARC
 NetworkProcess/mac/NetworkProcessMac.mm @nonARC
 NetworkProcess/mac/SecItemShim.mm @nonARC
 
-NetworkProcess/webrtc/LibWebRTCSocketClient.cpp
-NetworkProcess/webrtc/NetworkRTCMonitor.cpp
-NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC
-NetworkProcess/webrtc/NetworkRTCProvider.cpp
-NetworkProcess/webrtc/NetworkRTCSharedMonitor.cpp
-NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm @nonARC
-NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm @nonARC
 
 GPUProcess/EntryPoint/Cocoa/XPCService/GPUServiceEntryPoint.mm @nonARC
 GPUProcess/cocoa/GPUConnectionToWebProcessCocoa.mm @nonARC
@@ -81,10 +74,6 @@ GPUProcess/media/RemoteImageDecoderAVFProxy.cpp
 GPUProcess/media/cocoa/VideoReceiverEndpointManager.mm @nonARC
 GPUProcess/media/cocoa/RemoteMediaPlayerProxyCocoa.mm @nonARC
 GPUProcess/media/ios/RemoteMediaSessionHelperProxy.cpp
-GPUProcess/webrtc/LibWebRTCCodecsProxy.mm @nonARC @no-unify // Includes libwebrtc headers with macro pollution.
-GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp
-GPUProcess/webrtc/RemoteSampleBufferDisplayLayer.mm @nonARC
-GPUProcess/webrtc/UserMediaCaptureManagerProxy.cpp @cost:3
 
 ModelProcess/EntryPoint/Cocoa/XPCService/ModelServiceEntryPoint.mm @nonARC
 ModelProcess/cocoa/ModelProcessCocoa.mm @nonARC
@@ -253,7 +242,6 @@ Shared/RemoteLayerTree/RemoteScrollingCoordinatorTransaction.cpp
 Shared/RemoteLayerTree/RemoteScrollingUIState.cpp
 
 WebProcess/Model/WebModelPlayer.mm
-WebProcess/GPU/webrtc/SharedVideoFrame.cpp
 
 UIProcess/_WKWebViewPrintFormatter.mm @nonARC
 UIProcess/ApplicationStateTracker.mm @nonARC
@@ -468,8 +456,6 @@ UIProcess/Cocoa/TextExtraction/WKTextExtractionUtilities.mm @nonARC
 UIProcess/Cocoa/UIDelegate.mm @nonARC @cost:3
 UIProcess/Cocoa/UIProcessLogInitializationCocoa.mm @nonARC
 UIProcess/Cocoa/UIRemoteObjectRegistry.cpp
-UIProcess/Cocoa/UserMediaPermissionRequestManagerProxy.mm @nonARC
-UIProcess/Cocoa/UserMediaPermissionRequestProxyCocoa.mm @nonARC
 UIProcess/Cocoa/VideoPresentationManagerProxy.mm @nonARC
 UIProcess/Cocoa/ViewSnapshotStoreCocoa.mm @nonARC
 UIProcess/Cocoa/WebKitSwiftSoftLink.mm @nonARC @no-unify // SOFT_LINK_*_FOR_SOURCE defines non-inline symbols.
@@ -725,11 +711,8 @@ WebProcess/ApplePay/cocoa/WebPaymentCoordinatorCocoa.mm @nonARC
 WebProcess/cocoa/PlaybackSessionManager.mm @nonARC
 WebProcess/cocoa/RemoteCaptureSampleManager.cpp
 WebProcess/cocoa/RemoteRealtimeAudioSource.cpp
-WebProcess/cocoa/RemoteRealtimeMediaSource.cpp
-WebProcess/cocoa/RemoteRealtimeMediaSourceProxy.cpp
 WebProcess/cocoa/RemoteRealtimeVideoSource.cpp
 WebProcess/cocoa/TextRecognitionRequest.cpp
-WebProcess/cocoa/UserMediaCaptureManager.cpp
 WebProcess/cocoa/VideoPresentationManager.mm @nonARC @cost:7
 WebProcess/cocoa/WebProcessCocoa.mm @nonARC @cost:4
 
@@ -793,7 +776,6 @@ WebProcess/GPU/media/RemoteImageDecoderAVFManager.cpp
 WebProcess/GPU/media/cocoa/MediaPlayerPrivateRemoteCocoa.mm @nonARC
 WebProcess/GPU/media/cocoa/VideoLayerRemoteCocoa.mm @nonARC
 WebProcess/GPU/media/ios/RemoteMediaSessionHelper.cpp
-WebProcess/GPU/webrtc/AudioMediaStreamTrackRendererInternalUnitManager.cpp
 
 WebProcess/InjectedBundle/API/c/WKBundlePageBanner.cpp
 
@@ -913,9 +895,6 @@ GPUConnectionToWebProcessMessageReceiver.cpp @cost:6
 GPUProcessConnectionMessageReceiver.cpp
 GPUProcessMessageReceiver.cpp @cost:7
 GPUProcessProxyMessageReceiver.cpp
-LibWebRTCCodecsMessageReceiver.cpp
-LibWebRTCCodecsProxyMessageReceiver.cpp
-LibWebRTCNetworkMessageReceiver.cpp
 LogStreamMessageReceiver.cpp
 Shared/LogStream.mm @no-unify-when(bundle<=8)
 ModelConnectionToWebProcessMessageReceiver.cpp
@@ -931,8 +910,6 @@ NetworkProcessConnectionMessageReceiver.cpp @cost:3
 NetworkProcessMessageReceiver.cpp @cost:9
 NetworkProcessProxyMessageReceiver.cpp @cost:6
 NetworkResourceLoaderMessageReceiver.cpp @cost:5
-NetworkRTCMonitorMessageReceiver.cpp
-NetworkRTCProviderMessageReceiver.cpp @cost:3
 NetworkSocketChannelMessageReceiver.cpp
 NetworkStorageManagerMessageReceiver.cpp @cost:6
 NotificationManagerMessageHandlerMessageReceiver.cpp @cost:3
@@ -987,13 +964,9 @@ SecItemShimProxyMessageReceiver.cpp
 SerializedTypeInfo.mm @nonARC @cost:14
 ServiceWorkerFetchTaskMessageReceiver.cpp
 SmartMagnificationControllerMessageReceiver.cpp
-SpeechRecognitionRealtimeMediaSourceManagerMessageReceiver.cpp
-SpeechRecognitionRemoteRealtimeMediaSourceManagerMessageReceiver.cpp @cost:10
 SpeechRecognitionServerMessageReceiver.cpp @cost:10
 StorageAreaMapMessageReceiver.cpp
 TextCheckingControllerProxyMessageReceiver.cpp
-UserMediaCaptureManagerMessageReceiver.cpp @cost:3
-UserMediaCaptureManagerProxyMessageReceiver.cpp @cost:3
 VideoPresentationManagerMessageReceiver.cpp @cost:3
 VideoPresentationManagerProxyMessageReceiver.cpp @cost:3
 ViewGestureControllerMessageReceiver.cpp @cost:10
@@ -1034,8 +1007,6 @@ WebProcessMessageReceiver.cpp @cost:9
 WebProcessPoolMessageReceiver.cpp @cost:10
 WebProcessProxyMessageReceiver.cpp @cost:15
 WebResourceLoaderMessageReceiver.cpp @cost:3
-WebRTCMonitorMessageReceiver.cpp @cost:3
-WebRTCResolverMessageReceiver.cpp
 WebSocketChannelMessageReceiver.cpp
 WebSpeechRecognitionConnectionMessageReceiver.cpp
 WebSWClientConnectionMessageReceiver.cpp @cost:3

@@ -161,12 +161,9 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::disable()
     auto& inspectedPageSettings = m_inspectedPage->settings();
     inspectedPageSettings.setAuthorAndUserStylesEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setFixedBackgroundsPaintRelativeToDocumentInspectorOverride(std::nullopt);
-    inspectedPageSettings.setICECandidateFilteringEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setImagesEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setInputTypeMonthEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setInputTypeWeekEnabledInspectorOverride(std::nullopt);
-    inspectedPageSettings.setMediaCaptureRequiresSecureConnectionInspectorOverride(std::nullopt);
-    inspectedPageSettings.setMockCaptureDevicesEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setNeedsSiteSpecificQuirksInspectorOverride(std::nullopt);
     inspectedPageSettings.setScriptEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setShowDebugBordersInspectorOverride(std::nullopt);
@@ -259,10 +256,6 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::overrideSetting(Ins
 #endif
         return { };
 
-    case Inspector::Protocol::Page::Setting::ICECandidateFilteringEnabled:
-        inspectedPageSettings.setICECandidateFilteringEnabledInspectorOverride(value);
-        return { };
-
     case Inspector::Protocol::Page::Setting::ITPDebugModeEnabled:
         m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::ITPDebugModeEnabled, value);
         return { };
@@ -277,15 +270,6 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::overrideSetting(Ins
 
     case Inspector::Protocol::Page::Setting::InputTypeWeekEnabled:
         inspectedPageSettings.setInputTypeWeekEnabledInspectorOverride(value);
-        return { };
-
-    case Inspector::Protocol::Page::Setting::MediaCaptureRequiresSecureConnection:
-        inspectedPageSettings.setMediaCaptureRequiresSecureConnectionInspectorOverride(value);
-        return { };
-
-    case Inspector::Protocol::Page::Setting::MockCaptureDevicesEnabled:
-        inspectedPageSettings.setMockCaptureDevicesEnabledInspectorOverride(value);
-        m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::MockCaptureDevicesEnabled, value);
         return { };
 
     case Inspector::Protocol::Page::Setting::NeedsSiteSpecificQuirks:

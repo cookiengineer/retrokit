@@ -41,9 +41,6 @@
 #include "SpeechRecognitionResultList.h"
 #include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(MEDIA_STREAM)
-#include "RealtimeMediaSource.h"
-#endif
 
 namespace WebCore {
 
@@ -116,10 +113,6 @@ void SpeechRecognition::stop()
 {
     abortRecognition();
 
-#if ENABLE(MEDIA_STREAM)
-    if (RefPtr captureSource = m_captureSource.get())
-        captureSource->stop();
-#endif
 
     if (!m_connection)
         return;
@@ -137,12 +130,6 @@ void SpeechRecognition::didStart()
     queueTaskToDispatchEvent(*this, TaskSource::Speech, Event::create(eventNames().startEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
-#if ENABLE(MEDIA_STREAM)
-void SpeechRecognition::captureSourceCreated(RealtimeMediaSource& source)
-{
-    m_captureSource = source;
-}
-#endif
 
 void SpeechRecognition::didStartCapturingAudio()
 {

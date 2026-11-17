@@ -59,9 +59,6 @@ struct FileChooserSettings {
     Vector<String> acceptMIMETypes;
     Vector<String> acceptFileExtensions;
     Vector<String> selectedFiles;
-#if ENABLE(MEDIA_CAPTURE)
-    MediaCaptureType mediaCaptureType { MediaCaptureType::MediaCaptureTypeNone };
-#endif
 };
 
 class FileChooserClient {

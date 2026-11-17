@@ -26,7 +26,6 @@
 #pragma once
 
 #include "RemoteRealtimeMediaSource.h"
-#include "UserMediaCaptureManager.h"
 
 namespace WebKit {
 

@@ -29,6 +29,8 @@
 
 #include "IPCSemaphore.h"
 #include "RemoteVideoFrameIdentifier.h"
+#include "SharedVideoFrame.h"
+#include "SharedVideoFrameInfo.h"
 #include <WebCore/IntSize.h>
 #include <WebCore/PixelBufferConformerCV.h>
 #include <WebCore/PlatformVideoColorSpace.h>

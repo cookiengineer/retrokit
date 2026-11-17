@@ -30,7 +30,6 @@
 #import "IOSurface.h"
 #import "ImageUtilities.h"
 #import "Logging.h"
-#import "RealtimeVideoUtilities.h"
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <wtf/CheckedArithmetic.h>
 #import <wtf/StdLibExtras.h>

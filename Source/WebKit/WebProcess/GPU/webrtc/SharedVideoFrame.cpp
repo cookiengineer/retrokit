@@ -31,6 +31,7 @@
 #include "Logging.h"
 #include "RemoteVideoFrameObjectHeap.h"
 #include "RemoteVideoFrameProxy.h"
+#include "SharedVideoFrameInfo.h"
 #include <WebCore/CVUtilities.h>
 #include <WebCore/IOSurface.h>
 #include <WebCore/SharedVideoFrameInfo.h>

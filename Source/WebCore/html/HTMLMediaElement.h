@@ -138,9 +138,6 @@ using CueList = Vector<CueInterval>;
 using PlatformDisplayID = uint32_t;
 
 using MediaProvider = Variant<
-#if ENABLE(MEDIA_STREAM)
-    Ref<MediaStream>,
-#endif
 #if ENABLE(MEDIA_SOURCE)
     Ref<MediaSource>,
 #endif
@@ -330,10 +327,6 @@ public:
     double minFastReverseRate() const;
     double maxFastForwardRate() const;
 
-#if ENABLE(MEDIA_STREAM)
-    void setAudioOutputDevice(String&& deviceId, DOMPromiseDeferred<void>&&);
-    String audioOutputHashedDeviceId() const { return m_audioOutputHashedDeviceId; }
-#endif
 
     using HTMLMediaElementEnums::BufferingPolicy;
     WEBCORE_EXPORT void setBufferingPolicy(BufferingPolicy);
@@ -629,10 +622,6 @@ public:
 
     WEBCORE_EXPORT const MediaResourceLoader* NODELETE lastMediaResourceLoaderForTesting() const;
 
-#if ENABLE(MEDIA_STREAM)
-    void mediaStreamCaptureStarted();
-    bool hasMediaStreamSrcObject() const { return m_mediaProvider && std::holds_alternative<Ref<MediaStream>>(*m_mediaProvider); }
-#endif
 
     bool supportsSeeking() const override;
 
@@ -1442,10 +1431,6 @@ private:
     friend class MediaControlsHost;
     const std::unique_ptr<MediaControlsHost> m_mediaControlsHost;
 
-#if ENABLE(MEDIA_STREAM)
-    RefPtr<MediaStream> m_mediaStreamSrcObject;
-    bool m_settingMediaStreamSrcObject { false };
-#endif
 
     MediaProducerMediaStateFlags m_mediaState;
 
@@ -1463,9 +1448,6 @@ private:
     bool m_removedBehaviorRestrictionsAfterFirstUserGesture { false };
 
     String m_audioOutputPersistentDeviceId;
-#if ENABLE(MEDIA_STREAM)
-    String m_audioOutputHashedDeviceId;
-#endif
     String m_id;
 
 #if USE(AUDIO_SESSION)

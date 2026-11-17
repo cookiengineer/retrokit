@@ -30,6 +30,7 @@
 #include "GPUProcessConnection.h"
 #include "RemoteVideoFrameIdentifier.h"
 #include "RemoteVideoFrameProxyProperties.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <WebCore/VideoFrame.h>
 #include <wtf/ArgumentCoder.h>
 #include <wtf/TZoneMalloc.h>

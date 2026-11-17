@@ -1052,12 +1052,6 @@ public:
     void restorePageState(const WebCore::HistoryItem&);
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    UserMediaPermissionRequestManager& userMediaPermissionRequestManager() LIFETIME_BOUND { return m_userMediaPermissionRequestManager; }
-    void captureDevicesChanged();
-    void updateCaptureState(const WebCore::Document&, bool isActive, WebCore::MediaProducerMediaCaptureKind, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&&);
-    void voiceActivityDetected();
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     MediaKeySystemPermissionRequestManager& mediaKeySystemPermissionRequestManager() LIFETIME_BOUND { return m_mediaKeySystemPermissionRequestManager; }
@@ -1681,11 +1675,6 @@ public:
 
     void imageOrMediaDocumentSizeChanged(const WebCore::IntSize&);
 
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
-    void setOrientationForMediaCapture(uint64_t rotation);
-    void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
-    void triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay);
-#endif
 
     void addUserScript(String&& source, InjectedBundleScriptWorld&, WebCore::UserContentInjectedFrames = WebCore::UserContentInjectedFrames::InjectInAllFrames, WebCore::UserScriptInjectionTime = WebCore::UserScriptInjectionTime::DocumentStart, WebCore::UserContentMatchParentFrame = WebCore::UserContentMatchParentFrame::Never);
     void addUserStyleSheet(const String& source, WebCore::UserContentInjectedFrames);
@@ -2530,10 +2519,6 @@ private:
 #endif
 
 
-#if ENABLE(MEDIA_STREAM)
-    void userMediaAccessWasGranted(WebCore::UserMediaRequestIdentifier, WebCore::CaptureDevice&& audioDeviceUID, WebCore::CaptureDevice&& videoDeviceUID, WebCore::MediaDeviceHashSalts&& mediaDeviceIdentifierHashSalt, Vector<SandboxExtensionHandle>&&, CompletionHandler<void()>&&);
-    void userMediaAccessWasDenied(WebCore::UserMediaRequestIdentifier, uint64_t reason, String&& message, WebCore::MediaConstraintType);
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     void mediaKeySystemWasGranted(WebCore::MediaKeySystemRequestIdentifier, String&& mediaKeysHashSalt);
@@ -2964,9 +2949,6 @@ private:
     const UniqueRef<WebScreenOrientationManager> m_screenOrientationManager;
 
 
-#if ENABLE(MEDIA_STREAM)
-    const UniqueRef<UserMediaPermissionRequestManager> m_userMediaPermissionRequestManager;
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     const UniqueRef<MediaKeySystemPermissionRequestManager> m_mediaKeySystemPermissionRequestManager;

@@ -2379,14 +2379,6 @@ public:
 
     URL currentResourceDirectoryURL() const;
 
-#if ENABLE(MEDIA_STREAM)
-    void setMockCaptureDevicesEnabledOverride(std::optional<bool>);
-    void willStartCapture(UserMediaPermissionRequestProxy&, CompletionHandler<void()>&&);
-    void NODELETE startMonitoringCaptureDeviceRotation(const String&);
-    void NODELETE stopMonitoringCaptureDeviceRotation(const String&);
-    void NODELETE rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
-    void microphoneMuteStatusChanged(bool isMuting);
-#endif
 
     void maybeInitializeSandboxExtensionHandle(WebProcessProxy&, const URL&, const URL& resourceDirectoryURL, bool checkAssumedReadAccessToResourceURL, CompletionHandler<void(std::optional<SandboxExtensionHandle>&&)>&&);
 
@@ -2423,10 +2415,6 @@ public:
     void setOrientationForMediaCapture(WebCore::IntDegrees);
     void setMediaCaptureRotationForTesting(WebCore::IntDegrees, const String&);
 
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
-    void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
-    void triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay);
-#endif
 
     bool isHandlingPreventableTouchStart() const { return m_handlingPreventableTouchStartCount; }
     bool isHandlingPreventableTouchMove() const { return m_touchMovePreventionState == EventPreventionState::Waiting; }
@@ -2558,13 +2546,6 @@ public:
     CGRect appHighlightsOverlayRect();
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    UserMediaPermissionRequestManagerProxy* NODELETE userMediaPermissionRequestManagerIfExists();
-    WebCore::CaptureSourceOrError createRealtimeMediaSourceForSpeechRecognition(WebCore::SpeechRecognitionConnectionClientIdentifier);
-    void clearUserMediaPermissionRequestHistory(WebCore::PermissionName);
-    bool shouldListenToVoiceActivity() const { return m_shouldListenToVoiceActivity; }
-    void voiceActivityDetected();
-#endif
 
 #if PLATFORM(MAC)
     void changeUniversalAccessZoomFocus(const WebCore::IntRect&, const WebCore::IntRect&);
@@ -3179,14 +3160,6 @@ private:
 
     bool shouldClosePreviousPage(const ProvisionalPageProxy&);
 
-#if ENABLE(MEDIA_STREAM)
-    UserMediaPermissionRequestManagerProxy& userMediaPermissionRequestManager();
-    void requestUserMediaPermissionForFrame(IPC::Connection&, WebCore::UserMediaRequestIdentifier, FrameInfoData&&, const WebCore::SecurityOriginData& userMediaDocumentOriginIdentifier, const WebCore::SecurityOriginData& topLevelDocumentOriginIdentifier, WebCore::MediaStreamRequest&&);
-    void enumerateMediaDevicesForFrame(IPC::Connection&, WebCore::FrameIdentifier, const WebCore::SecurityOriginData& userMediaDocumentOriginData, const WebCore::SecurityOriginData& topLevelDocumentOriginData, CompletionHandler<void(const Vector<WebCore::CaptureDeviceWithCapabilities>&, WebCore::MediaDeviceHashSalts&&)>&&);
-    void beginMonitoringCaptureDevices();
-    void validateCaptureStateUpdate(WebCore::UserMediaRequestIdentifier, WebCore::ClientOrigin&&, FrameInfoData&&, bool isActive, WebCore::MediaProducerMediaCaptureKind, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&&);
-    void setShouldListenToVoiceActivity(bool);
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     MediaKeySystemPermissionRequestManagerProxy& mediaKeySystemPermissionRequestManager() LIFETIME_BOUND;
@@ -3865,11 +3838,6 @@ private:
 
     RefPtr<WebOpenPanelResultListenerProxy> m_openPanelResultListener;
 
-#if ENABLE(MEDIA_STREAM)
-    RefPtr<UserMediaPermissionRequestManagerProxy> m_userMediaPermissionRequestManager;
-    bool m_shouldListenToVoiceActivity { false };
-    OptionSet<WebCore::MediaProducerMediaCaptureKind> m_mutedCaptureKindsDesiredByWebApp;
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     const std::unique_ptr<MediaKeySystemPermissionRequestManagerProxy> m_mediaKeySystemPermissionRequestManager;

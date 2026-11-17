@@ -42,7 +42,6 @@
 #include <WebCore/WorkerWebTransportSession.h>
 
 #if USE(LIBRICE)
-#include "RiceBackendProxy.h"
 #endif
 
 namespace WebKit {

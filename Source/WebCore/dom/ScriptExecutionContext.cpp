@@ -59,7 +59,6 @@
 #include "Performance.h"
 #include "PublicURLManager.h"
 #include "Quirks.h"
-#include "RTCDataChannelRemoteHandlerConnection.h"
 #include "RejectedPromiseTracker.h"
 #include "ResourceRequest.h"
 #include "SWClientConnection.h"
@@ -519,10 +518,6 @@ std::optional<PAL::SessionID> ScriptExecutionContext::sessionID() const
     return std::nullopt;
 }
 
-RefPtr<RTCDataChannelRemoteHandlerConnection> ScriptExecutionContext::createRTCDataChannelRemoteHandlerConnection()
-{
-    return nullptr;
-}
 
 // FIXME: Should this function be in SecurityContext or SecurityOrigin instead?
 bool ScriptExecutionContext::canIncludeErrorDetails(CachedScript* script, const String& sourceURL, bool fromModule)

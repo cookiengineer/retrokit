@@ -33,7 +33,6 @@
 #include "GPUProcessConnectionMessages.h"
 #include "RemoteAudioSessionProxy.h"
 #include <WebCore/AudioSession.h>
-#include <WebCore/CoreAudioCaptureSource.h>
 #include <WebCore/PlatformMediaSessionManager.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/TZoneMallocInlines.h>

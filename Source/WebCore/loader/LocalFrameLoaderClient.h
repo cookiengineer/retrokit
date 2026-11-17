@@ -329,9 +329,6 @@ public:
 
     virtual void didFinishServiceWorkerPageRegistration(bool success) { UNUSED_PARAM(success); }
 
-#if ENABLE(WEB_RTC)
-    virtual void dispatchWillStartUsingPeerConnectionHandler(RTCPeerConnectionHandler*) { }
-#endif
 
     virtual void completePageTransitionIfNeeded() { }
     virtual void setDocumentVisualUpdatesAllowed(bool) { }

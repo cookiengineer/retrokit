@@ -36,10 +36,6 @@
 #include "InspectorInstrumentation.h"
 #include "LoaderStrategy.h"
 #include "PlatformStrategies.h"
-#if ENABLE(WEB_RTC)
-#include "RTCRtpScriptTransform.h"
-#include "RTCRtpScriptTransformer.h"
-#endif
 #include "ResourceResponse.h"
 #include "SecurityOrigin.h"
 #include "StructuredSerializeOptions.h"
@@ -287,18 +283,6 @@ void Worker::reportError(const String& errorMessage)
     });
 }
 
-#if ENABLE(WEB_RTC)
-void Worker::createRTCRtpScriptTransformer(RTCRtpScriptTransform& transform, MessageWithMessagePorts&& options)
-{
-    if (!scriptExecutionContext())
-        return;
-
-    m_contextProxy.postTaskToWorkerGlobalScope([transform = Ref { transform }, options = WTF::move(options)](ScriptExecutionContext& context) mutable {
-        if (RefPtr transformer = downcast<DedicatedWorkerGlobalScope>(context).createRTCRtpScriptTransformer(WTF::move(options)))
-            transform->setTransformer(*transformer);
-    });
-}
-#endif
 
 void Worker::postTaskToWorkerGlobalScope(Function<void(ScriptExecutionContext&)>&& task)
 {

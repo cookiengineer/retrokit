@@ -28,12 +28,10 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "AudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "AudioVideoRendererRemoteMessageReceiverMessages.h"
 #include "GPUConnectionToWebProcessMessages.h"
 #include "GPUProcessConnectionInfo.h"
 #include "GPUProcessConnectionMessages.h"
-#include "LibWebRTCCodecs.h"
 #include "LibWebRTCCodecsMessages.h"
 #include "Logging.h"
 #include "MediaOverridesForTesting.h"
@@ -47,7 +45,6 @@
 #include "RemoteMediaPlayerManager.h"
 #include "RemoteRemoteCommandListenerMessages.h"
 #include "RemoteSharedResourceCacheProxy.h"
-#include "SampleBufferDisplayLayerManager.h"
 #include "SampleBufferDisplayLayerMessages.h"
 #include "WebPage.h"
 #include "WebPageCreationParameters.h"
@@ -72,13 +69,8 @@
 #include "RemoteMediaSessionHelperMessages.h"
 #endif
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-#include "UserMediaCaptureManager.h"
-#include "UserMediaCaptureManagerMessages.h"
-#endif
 
 #if ENABLE(VIDEO)
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "RemoteVideoFrameProxy.h"
 #endif
 
@@ -105,6 +97,9 @@
 
 #if ENABLE(ROUTING_ARBITRATION)
 #include "AudioSessionRoutingArbitrator.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
+#include "SampleBufferDisplayLayer.h"
+#include "SampleBufferDisplayLayerManager.h"
 #endif
 
 namespace WebKit {
@@ -192,19 +187,6 @@ void GPUProcessConnection::didReceiveInvalidMessage(IPC::Connection&, IPC::Messa
 {
 }
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-SampleBufferDisplayLayerManager& GPUProcessConnection::sampleBufferDisplayLayerManager()
-{
-    if (!m_sampleBufferDisplayLayerManager)
-        lazyInitialize(m_sampleBufferDisplayLayerManager, makeUniqueWithoutRefCountedCheck<SampleBufferDisplayLayerManager>(*this));
-    return *m_sampleBufferDisplayLayerManager;
-}
-
-void GPUProcessConnection::resetAudioMediaStreamTrackRendererInternalUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier identifier)
-{
-    WebProcess::singleton().audioMediaStreamTrackRendererInternalUnitManager().reset(identifier);
-}
-#endif
 
 #if ENABLE(VIDEO)
 RemoteVideoFrameObjectHeapProxy& GPUProcessConnection::videoFrameObjectHeapProxy()
@@ -244,17 +226,6 @@ bool GPUProcessConnection::dispatchMessage(IPC::Connection& connection, IPC::Dec
 
 #endif
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    if (decoder.messageReceiverName() == Messages::UserMediaCaptureManager::messageReceiverName()) {
-        protect(WebProcess::singleton().userMediaCaptureManager())->didReceiveMessageFromGPUProcess(connection, decoder);
-        return true;
-    }
-
-    if (decoder.messageReceiverName() == Messages::SampleBufferDisplayLayer::messageReceiverName()) {
-        protect(sampleBufferDisplayLayerManager())->didReceiveLayerMessage(connection, decoder);
-        return true;
-    }
-#endif // PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 
 #if ENABLE(ENCRYPTED_MEDIA)
     if (decoder.messageReceiverName() == Messages::RemoteCDMInstanceSession::messageReceiverName()) {

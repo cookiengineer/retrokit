@@ -49,9 +49,7 @@
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
 #include "WebProcessProxyMessages.h"
-#include <WebCore/DisplayCapturePromptType.h>
 #include <WebCore/LogInitialization.h>
-#include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/ScreenProperties.h>
 #include <algorithm>
 #include <wtf/CompletionHandler.h>
@@ -91,18 +89,6 @@
 namespace WebKit {
 using namespace WebCore;
 
-#if ENABLE(MEDIA_STREAM) && HAVE(AUDIT_TOKEN)
-static bool NODELETE shouldCreateAppleCameraServiceSandboxExtension()
-{
-#if !PLATFORM(MAC) && !PLATFORM(MACCATALYST)
-    return false;
-#elif CPU(ARM64)
-    return true;
-#else
-    return WTF::isX86BinaryRunningOnARM();
-#endif
-}
-#endif
 
 static WeakPtr<GPUProcessProxy>& NODELETE singleton()
 {
@@ -165,9 +151,6 @@ static String gpuProcessCachesDirectory()
 
 GPUProcessProxy::GPUProcessProxy()
     : AuxiliaryProcessProxy("GPUProcess"_s, WebProcessPool::anyProcessPoolNeedsUIBackgroundAssertion() ? ShouldTakeUIBackgroundAssertion::Yes : ShouldTakeUIBackgroundAssertion::No)
-#if ENABLE(MEDIA_STREAM)
-    , m_useMockCaptureDevices(MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled())
-#endif
 {
     connect();
 
@@ -175,17 +158,6 @@ GPUProcessProxy::GPUProcessProxy()
     parameters.auxiliaryProcessParameters = auxiliaryProcessParameters();
     parameters.overrideLanguages = overrideLanguages();
 
-#if ENABLE(MEDIA_STREAM)
-    parameters.useMockCaptureDevices = m_useMockCaptureDevices;
-#if PLATFORM(MAC)
-    // FIXME: Remove this and related parameter when <rdar://problem/29448368> is fixed.
-    if (WTF::MacApplication::isSafari()) {
-        if (auto handle = SandboxExtension::createHandleForGenericExtension("com.apple.webkit.microphone"_s))
-            parameters.microphoneSandboxExtensionHandle = WTF::move(*handle);
-        m_hasSentMicrophoneSandboxExtension = true;
-    }
-#endif
-#endif // ENABLE(MEDIA_STREAM)
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     parameters.containerCachesDirectory = resolveAndCreateReadWriteDirectoryForSandboxExtension(gpuProcessCachesDirectory());
@@ -240,258 +212,6 @@ GPUProcessProxy::GPUProcessProxy()
 
 GPUProcessProxy::~GPUProcessProxy() = default;
 
-#if ENABLE(MEDIA_STREAM)
-void GPUProcessProxy::setUseMockCaptureDevices(bool value)
-{
-    if (value == m_useMockCaptureDevices)
-        return;
-    m_useMockCaptureDevices = value;
-    send(Messages::GPUProcess::SetMockCaptureDevicesEnabled { m_useMockCaptureDevices }, 0);
-}
-
-void GPUProcessProxy::enableMicrophoneMuteStatusAPI()
-{
-    if (m_isMicrophoneMuteStatusAPIEnabled)
-        return;
-    m_isMicrophoneMuteStatusAPIEnabled = true;
-    send(Messages::GPUProcess::EnableMicrophoneMuteStatusAPI { }, 0);
-}
-
-void GPUProcessProxy::setOrientationForMediaCapture(WebCore::IntDegrees orientation)
-{
-    if (m_orientation == orientation)
-        return;
-    m_orientation = orientation;
-    send(Messages::GPUProcess::SetOrientationForMediaCapture { orientation }, 0);
-}
-
-#if HAVE(APPLE_CAMERA_USER_CLIENT)
-static const ASCIILiteral appleCameraUserClientPath { "com.apple.aneuserd"_s };
-static const ASCIILiteral appleCameraUserClientIOKitClientClass { "H11ANEInDirectPathClient"_s };
-// FIXME: Remove the "H11ANEIn" extension. See rdar://144622656.
-static const ASCIILiteral appleCameraUserClientIOKitServiceClass { "H11ANEIn"_s };
-static const ASCIILiteral appleCameraUserClientIOKitServiceClassLoadBalancer { "H1xANELoadBalancer"_s };
-#endif
-
-#if PLATFORM(COCOA)
-static inline bool addCameraSandboxExtensions(Vector<SandboxExtension::Handle>& extensions)
-{
-    auto sandboxExtensionHandle = SandboxExtension::createHandleForGenericExtension("com.apple.webkit.camera"_s);
-    if (!sandboxExtensionHandle) {
-        RELEASE_LOG_ERROR(WebRTC, "Unable to create com.apple.webkit.camera sandbox extension");
-        return false;
-    }
-#if HAVE(AUDIT_TOKEN)
-        if (shouldCreateAppleCameraServiceSandboxExtension()) {
-            auto appleCameraServicePathSandboxExtensionHandle = SandboxExtension::createHandleForMachLookup("com.apple.applecamerad"_s, std::nullopt);
-            if (!appleCameraServicePathSandboxExtensionHandle) {
-                RELEASE_LOG_ERROR(WebRTC, "Unable to create com.apple.applecamerad sandbox extension");
-                return false;
-            }
-            extensions.append(WTF::move(*appleCameraServicePathSandboxExtensionHandle));
-#if HAVE(ADDITIONAL_APPLE_CAMERA_SERVICE)
-            auto additionalAppleCameraServicePathSandboxExtensionHandle = SandboxExtension::createHandleForMachLookup("com.apple.appleh13camerad"_s, std::nullopt);
-            if (!additionalAppleCameraServicePathSandboxExtensionHandle) {
-                RELEASE_LOG_ERROR(WebRTC, "Unable to create com.apple.appleh13camerad sandbox extension");
-                return false;
-            }
-            extensions.append(WTF::move(*additionalAppleCameraServicePathSandboxExtensionHandle));
-#endif
-#if HAVE(APPLE_CAMERA_USER_CLIENT)
-            // Needed for rdar://108282689:
-            auto appleCameraUserClientExtensionHandle = SandboxExtension::createHandleForMachLookup(appleCameraUserClientPath, std::nullopt);
-            if (!appleCameraUserClientExtensionHandle) {
-                RELEASE_LOG_ERROR(WebRTC, "Unable to create %s sandbox extension", appleCameraUserClientPath.characters());
-                return false;
-            }
-            extensions.append(WTF::move(*appleCameraUserClientExtensionHandle));
-
-            auto appleCameraUserClientIOKitClientClassExtensionHandle = SandboxExtension::createHandleForIOKitClassExtension(appleCameraUserClientIOKitClientClass, std::nullopt);
-            if (!appleCameraUserClientIOKitClientClassExtensionHandle) {
-                RELEASE_LOG_ERROR(WebRTC, "Unable to create %s sandbox extension", appleCameraUserClientIOKitClientClass.characters());
-                return false;
-            }
-            extensions.append(WTF::move(*appleCameraUserClientIOKitClientClassExtensionHandle));
-
-            auto appleCameraUserClientIOKitServiceClassExtensionHandle = SandboxExtension::createHandleForIOKitClassExtension(appleCameraUserClientIOKitServiceClass, std::nullopt);
-            if (!appleCameraUserClientIOKitServiceClassExtensionHandle) {
-                RELEASE_LOG_ERROR(WebRTC, "Unable to create %s sandbox extension", appleCameraUserClientIOKitServiceClass.characters());
-                return false;
-            }
-            extensions.append(WTF::move(*appleCameraUserClientIOKitServiceClassExtensionHandle));
-
-            auto appleCameraUserClientIOKitServiceClassLoadBalancerExtensionHandle = SandboxExtension::createHandleForIOKitClassExtension(appleCameraUserClientIOKitServiceClassLoadBalancer, std::nullopt);
-            if (!appleCameraUserClientIOKitServiceClassLoadBalancerExtensionHandle) {
-                RELEASE_LOG_ERROR(WebRTC, "Unable to create %s sandbox extension", appleCameraUserClientIOKitServiceClassLoadBalancer.characters());
-                return false;
-            }
-            extensions.append(WTF::move(*appleCameraUserClientIOKitServiceClassLoadBalancerExtensionHandle));
-
-#endif
-        }
-#endif // HAVE(AUDIT_TOKEN)
-
-    extensions.append(WTF::move(*sandboxExtensionHandle));
-    return true;
-}
-
-static inline bool addMicrophoneSandboxExtension(Vector<SandboxExtension::Handle>& extensions)
-{
-    auto sandboxExtensionHandle = SandboxExtension::createHandleForGenericExtension("com.apple.webkit.microphone"_s);
-    if (!sandboxExtensionHandle) {
-        RELEASE_LOG_ERROR(WebRTC, "Unable to create com.apple.webkit.microphone sandbox extension");
-        return false;
-    }
-    extensions.append(WTF::move(*sandboxExtensionHandle));
-    return true;
-}
-#endif // PLATFORM(COCOA)
-
-#if HAVE(SCREEN_CAPTURE_KIT)
-static inline bool addDisplayCaptureSandboxExtension(std::optional<audit_token_t> auditToken, Vector<SandboxExtension::Handle>& extensions)
-{
-    if (!auditToken) {
-        RELEASE_LOG_ERROR(WebRTC, "NULL audit token");
-        return false;
-    }
-
-    auto handle = SandboxExtension::createHandleForMachLookup("com.apple.replaykit.sharingsession.notification"_s, *auditToken);
-    if (!handle)
-        return false;
-    extensions.append(WTF::move(*handle));
-
-    handle = SandboxExtension::createHandleForMachLookup("com.apple.replaykit.sharingsession"_s, *auditToken);
-    if (!handle)
-        return false;
-    extensions.append(WTF::move(*handle));
-
-    handle = SandboxExtension::createHandleForMachLookup("com.apple.tccd.system"_s, *auditToken);
-    if (!handle)
-        return false;
-    extensions.append(WTF::move(*handle));
-
-    handle = SandboxExtension::createHandleForMachLookup("com.apple.replayd"_s, *auditToken);
-    if (!handle)
-        return false;
-    extensions.append(WTF::move(*handle));
-
-    return true;
-}
-#endif
-
-#if PLATFORM(IOS) || PLATFORM(VISION)
-static inline bool addTCCDSandboxExtension(Vector<SandboxExtension::Handle>& extensions)
-{
-    auto handle = SandboxExtension::createHandleForMachLookup("com.apple.tccd"_s, std::nullopt);
-    if (!handle) {
-        RELEASE_LOG_ERROR(WebRTC, "Unable to create com.apple.tccd sandbox extension");
-        return false;
-    }
-    extensions.append(WTF::move(*handle));
-    return true;
-}
-#endif
-
-void GPUProcessProxy::updateSandboxAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture)
-{
-    if (m_useMockCaptureDevices)
-        return;
-
-#if PLATFORM(COCOA)
-    Vector<SandboxExtension::Handle> extensions;
-
-    if (allowVideoCapture && !m_hasSentCameraSandboxExtension && addCameraSandboxExtensions(extensions))
-        m_hasSentCameraSandboxExtension = true;
-
-    if (allowAudioCapture && !m_hasSentMicrophoneSandboxExtension && addMicrophoneSandboxExtension(extensions))
-        m_hasSentMicrophoneSandboxExtension = true;
-
-#if HAVE(SCREEN_CAPTURE_KIT)
-    if (allowDisplayCapture && !m_hasSentDisplayCaptureSandboxExtension && addDisplayCaptureSandboxExtension(protect(connection())->getAuditToken(), extensions))
-        m_hasSentDisplayCaptureSandboxExtension = true;
-#endif
-
-#if PLATFORM(IOS) || PLATFORM(VISION)
-    if ((allowAudioCapture || allowVideoCapture) && !m_hasSentTCCDSandboxExtension && addTCCDSandboxExtension(extensions))
-        m_hasSentTCCDSandboxExtension = true;
-#endif // PLATFORM(IOS) || PLATFORM(VISION)
-
-    if (!extensions.isEmpty())
-        send(Messages::GPUProcess::UpdateSandboxAccess { WTF::move(extensions) }, 0);
-#endif // PLATFORM(COCOA)
-}
-
-void GPUProcessProxy::updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier processID, WebPageProxyIdentifier pageIdentifier, CompletionHandler<void()>&& completionHandler)
-{
-    if (allowAudioCapture)
-        m_lastPageUsingMicrophone = pageIdentifier;
-
-    updateSandboxAccess(allowAudioCapture, allowVideoCapture, allowDisplayCapture);
-    sendWithAsyncReply(Messages::GPUProcess::UpdateCaptureAccess { allowAudioCapture, allowVideoCapture, allowDisplayCapture, processID }, WTF::move(completionHandler));
-}
-
-void GPUProcessProxy::updateCaptureOrigin(const WebCore::SecurityOriginData& originData, WebCore::ProcessIdentifier processID)
-{
-    send(Messages::GPUProcess::UpdateCaptureOrigin { originData, processID }, 0);
-}
-
-void GPUProcessProxy::addMockMediaDevice(const WebCore::MockMediaDevice& device)
-{
-    send(Messages::GPUProcess::AddMockMediaDevice { device }, 0);
-}
-
-void GPUProcessProxy::clearMockMediaDevices()
-{
-    send(Messages::GPUProcess::ClearMockMediaDevices { }, 0);
-}
-
-void GPUProcessProxy::removeMockMediaDevice(const String& persistentId)
-{
-    send(Messages::GPUProcess::RemoveMockMediaDevice { persistentId }, 0);
-}
-
-void GPUProcessProxy::setMockMediaDeviceIsEphemeral(const String& persistentId, bool isEphemeral)
-{
-    send(Messages::GPUProcess::SetMockMediaDeviceIsEphemeral { persistentId, isEphemeral }, 0);
-}
-
-void GPUProcessProxy::resetMockMediaDevices()
-{
-    send(Messages::GPUProcess::ResetMockMediaDevices { }, 0);
-}
-
-void GPUProcessProxy::setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted)
-{
-    send(Messages::GPUProcess::SetMockCaptureDevicesInterrupted { isCameraInterrupted, isMicrophoneInterrupted }, 0);
-}
-
-void GPUProcessProxy::triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay)
-{
-    send(Messages::GPUProcess::TriggerMockCaptureConfigurationChange { forCamera, forMicrophone, forDisplay }, 0);
-}
-
-void GPUProcessProxy::setShouldListenToVoiceActivity(const WebPageProxy& proxy, bool shouldListen)
-{
-    if (shouldListen) {
-        m_pagesListeningToVoiceActivity.add(proxy);
-        if (m_shouldListenToVoiceActivity)
-            return;
-    } else {
-        m_pagesListeningToVoiceActivity.remove(proxy);
-        if (!m_shouldListenToVoiceActivity)
-            return;
-    }
-
-    bool shouldListenToVoiceActivity = std::ranges::any_of(m_pagesListeningToVoiceActivity, [](auto& page) {
-        return page.shouldListenToVoiceActivity();
-    });
-    if (m_shouldListenToVoiceActivity == shouldListenToVoiceActivity)
-        return;
-
-    m_shouldListenToVoiceActivity = shouldListenToVoiceActivity;
-    send(Messages::GPUProcess::SetShouldListenToVoiceActivity { shouldListenToVoiceActivity }, 0);
-}
-#endif // ENABLE(MEDIA_STREAM)
 
 #if HAVE(SCREEN_CAPTURE_KIT)
 void GPUProcessProxy::promptForGetDisplayMedia(WebCore::DisplayCapturePromptType type, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&& completionHandler)
@@ -837,50 +557,6 @@ void GPUProcessProxy::platformInitializeGPUProcessParameters(GPUProcessCreationP
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-void GPUProcessProxy::voiceActivityDetected()
-{
-    for (Ref page : m_pagesListeningToVoiceActivity)
-        page->voiceActivityDetected();
-}
-
-void GPUProcessProxy::startMonitoringCaptureDeviceRotation(PageIdentifier pageID, const String& persistentId)
-{
-    if (auto* page = WebProcessProxy::webPage(pageID))
-        page->startMonitoringCaptureDeviceRotation(persistentId);
-}
-
-void GPUProcessProxy::stopMonitoringCaptureDeviceRotation(PageIdentifier pageID, const String& persistentId)
-{
-    if (auto* page = WebProcessProxy::webPage(pageID))
-        page->stopMonitoringCaptureDeviceRotation(persistentId);
-}
-
-void GPUProcessProxy::rotationAngleForCaptureDeviceChanged(const String& persistentId, WebCore::VideoFrameRotation rotation)
-{
-    send(Messages::GPUProcess::RotationAngleForCaptureDeviceChanged(persistentId, rotation), 0);
-}
-
-void GPUProcessProxy::microphoneMuteStatusChanged(bool isMuting)
-{
-    // FIXME: We are currently muting/unmuting the last capturing page. If all pages are muted, maybe we should favor the currently focused page if it has muted microphone capture.
-    ASSERT(m_lastPageUsingMicrophone);
-    if (!m_lastPageUsingMicrophone)
-        return;
-    if (RefPtr page = WebProcessProxy::webPage(*m_lastPageUsingMicrophone))
-        page->microphoneMuteStatusChanged(isMuting);
-}
-
-#if PLATFORM(IOS_FAMILY)
-void GPUProcessProxy::statusBarWasTapped(CompletionHandler<void()>&& completionHandler)
-{
-    if (RefPtr page = WebProcessProxy::audioCapturingWebPage())
-        page->statusBarWasTapped();
-    // Find the web page capturing audio and put focus on it.
-    completionHandler();
-}
-#endif
-#endif // ENABLE(MEDIA_STREAM)
 
 #if HAVE(AUDIT_TOKEN)
 void GPUProcessProxy::setPresentingApplicationAuditToken(WebCore::ProcessIdentifier processIdentifier, WebCore::PageIdentifier pageIdentifier, std::optional<CoreIPCAuditToken> auditToken)

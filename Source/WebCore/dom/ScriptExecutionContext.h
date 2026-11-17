@@ -98,7 +98,6 @@ class MessagePort;
 class NotificationClient;
 class PublicURLManager;
 class RejectedPromiseTracker;
-class RTCDataChannelRemoteHandlerConnection;
 class ResourceRequest;
 class ServiceWorker;
 class ServiceWorkerContainer;
@@ -177,8 +176,6 @@ public:
     virtual OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const = 0;
     virtual std::optional<uint64_t> noiseInjectionHashSalt() const = 0;
     virtual OptionSet<NoiseInjectionPolicy> noiseInjectionPolicies() const = 0;
-
-    virtual RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection();
 
     virtual String resourceRequestIdentifier() const { return String(); };
 

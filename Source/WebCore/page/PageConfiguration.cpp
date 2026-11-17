@@ -60,7 +60,6 @@
 #include "UserContentURLPattern.h"
 #include "ValidationMessageClient.h"
 #include "VisitedLinkStore.h"
-#include "WebRTCProvider.h"
 #include <wtf/TZoneMallocInlines.h>
 #if ENABLE(WEB_AUTHN)
 #include "AuthenticatorCoordinatorClient.h"
@@ -80,7 +79,6 @@ PageConfiguration::PageConfiguration(
     PAL::SessionID sessionID,
     UniqueRef<EditorClient>&& editorClient,
     Ref<SocketProvider>&& socketProvider,
-    UniqueRef<WebRTCProvider>&& webRTCProvider,
     Ref<CacheStorageProvider>&& cacheStorageProvider,
     Ref<UserContentProvider>&& userContentProvider,
     Ref<BackForwardClient>&& backForwardClient,
@@ -120,7 +118,6 @@ PageConfiguration::PageConfiguration(
 #if ENABLE(APPLE_PAY)
     , paymentCoordinatorClient(WTF::move(paymentCoordinatorClient))
 #endif
-    , webRTCProvider(WTF::move(webRTCProvider))
     , progressTrackerClient(WTF::move(progressTrackerClient))
     , backForwardClient(WTF::move(backForwardClient))
     , cookieJar(WTF::move(cookieJar))

@@ -97,7 +97,6 @@
 #include <WebCore/PlatformMediaSessionManager.h>
 #include <WebCore/PrewarmInformation.h>
 #include <WebCore/PublicSuffixStore.h>
-#include <WebCore/RealtimeMediaSourceCenter.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/SecurityOriginData.h>
 #include <WebCore/SerializedCryptoKeyWrap.h>
@@ -136,9 +135,6 @@
 #include "APIPageConfiguration.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include "UserMediaProcessManager.h"
-#endif
 
 #if ENABLE(SEC_ITEM_SHIM)
 #include "SecItemShimProxy.h"
@@ -383,10 +379,6 @@ WebProcessProxy::~WebProcessProxy()
     for (auto identifier : m_speechRecognitionServerMap.keys())
         removeMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier);
 
-#if ENABLE(MEDIA_STREAM)
-    if (m_speechRecognitionRemoteRealtimeMediaSourceManager)
-        removeMessageReceiver(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::messageReceiverName());
-#endif
 
     if (auto completionHandler = std::exchange(m_sharedPreferencesForWebProcessCompletionHandler, { }))
         completionHandler(false);
@@ -945,9 +937,6 @@ void WebProcessProxy::removeWebPage(WebPageProxy& webPage, EndsUsingDataStore en
     updateBackgroundResponsivenessTimer();
     protect(websiteDataStore())->propagateSettingUpdates();
 
-#if ENABLE(MEDIA_STREAM)
-    UserMediaProcessManager::singleton().revokeSandboxExtensionsIfNeeded(protect(*this));
-#endif
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
     // Refresh the WASM debugger listing for this process since it lost a page.
@@ -2715,8 +2704,8 @@ void WebProcessProxy::createSpeechRecognitionServer(SpeechRecognitionServerIdent
 
         page->requestSpeechRecognitionPermission(request, WTF::move(frameInfo), WTF::move(completionHandler));
     };
-    auto checkIfMockCaptureDevicesEnabled = [weakPage = WeakPtr { targetPage }]() {
-        return weakPage && protect(weakPage->preferences())->mockCaptureDevicesEnabled();
+    auto checkIfMockCaptureDevicesEnabled = []() {
+        return false;
     };
 
     m_speechRecognitionServerMap.ensure(identifier, [&]() {
@@ -2740,31 +2729,6 @@ void WebProcessProxy::destroySpeechRecognitionServer(SpeechRecognitionServerIden
         removeMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier);
 }
 
-#if ENABLE(MEDIA_STREAM)
-
-SpeechRecognitionRemoteRealtimeMediaSourceManager& WebProcessProxy::ensureSpeechRecognitionRemoteRealtimeMediaSourceManager()
-{
-    if (!m_speechRecognitionRemoteRealtimeMediaSourceManager) {
-        lazyInitialize(m_speechRecognitionRemoteRealtimeMediaSourceManager, makeUniqueWithoutRefCountedCheck<SpeechRecognitionRemoteRealtimeMediaSourceManager>(*this));
-        addMessageReceiver(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::messageReceiverName(), *protect(speechRecognitionRemoteRealtimeMediaSourceManager()));
-    }
-
-    return *m_speechRecognitionRemoteRealtimeMediaSourceManager;
-}
-
-void WebProcessProxy::muteCaptureInPagesExcept(WebCore::PageIdentifier pageID)
-{
-#if PLATFORM(COCOA)
-    for (Ref page : globalPages()) {
-        if (page->webPageIDInMainFrameProcess() != pageID)
-            page->setMediaStreamCaptureMuted(true);
-    }
-#else
-    UNUSED_PARAM(pageID);
-#endif
-}
-
-#endif
 
 void WebProcessProxy::pageMutedStateChanged(WebCore::PageIdentifier identifier, WebCore::MediaProducerMutedStateFlags flags)
 {
@@ -2778,10 +2742,6 @@ void WebProcessProxy::pageMutedStateChanged(WebCore::PageIdentifier identifier, 
 
 void WebProcessProxy::pageIsBecomingInvisible(WebCore::PageIdentifier identifier)
 {
-#if ENABLE(MEDIA_STREAM)
-    if (!RealtimeMediaSourceCenter::shouldInterruptAudioOnPageVisibilityChange())
-        return;
-#endif
 
     if (RefPtr speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
         speechRecognitionServer->mute();
@@ -3139,14 +3099,6 @@ void WebProcessProxy::permissionChanged(WebCore::PermissionName permissionName, 
 
 void WebProcessProxy::processPermissionChanged(WebCore::PermissionName permissionName, const WebCore::SecurityOriginData& topOrigin)
 {
-#if ENABLE(MEDIA_STREAM)
-    if (permissionName == WebCore::PermissionName::Camera || permissionName == WebCore::PermissionName::Microphone) {
-        for (auto& page : m_pageMap.values()) {
-            if (SecurityOriginData::fromURLWithoutStrictOpaqueness(URL { page->currentURL() }) == topOrigin)
-                page->clearUserMediaPermissionRequestHistory(permissionName);
-        }
-    }
-#endif
     send(Messages::WebPermissionController::permissionChanged(permissionName, topOrigin), 0);
 }
 

@@ -1090,26 +1090,6 @@ bool WKPreferencesGetUseGiantTiles(WKPreferencesRef preferencesRef)
     return protect(toImpl(preferencesRef))->useGiantTiles();
 }
 
-void WKPreferencesSetMediaDevicesEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setMediaDevicesEnabled(enabled);
-}
-
-bool WKPreferencesGetMediaDevicesEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->mediaDevicesEnabled();
-}
-
-void WKPreferencesSetPeerConnectionEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setPeerConnectionEnabled(enabled);
-}
-
-bool WKPreferencesGetPeerConnectionEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->peerConnectionEnabled();
-}
-
 void WKPreferencesSetSpatialNavigationEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
     protect(toImpl(preferencesRef))->setSpatialNavigationEnabled(enabled);
@@ -1270,16 +1250,6 @@ bool WKPreferencesGetResourceUsageOverlayVisible(WKPreferencesRef preferencesRef
     return protect(toImpl(preferencesRef))->resourceUsageOverlayVisible();
 }
 
-void WKPreferencesSetMockCaptureDevicesEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setMockCaptureDevicesEnabled(enabled);
-}
-
-bool WKPreferencesGetMockCaptureDevicesEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->mockCaptureDevicesEnabled();
-}
-
 void WKPreferencesSetGetUserMediaRequiresFocus(WKPreferencesRef preferencesRef, bool enabled)
 {
     protect(toImpl(preferencesRef))->setGetUserMediaRequiresFocus(enabled);
@@ -1290,16 +1260,6 @@ bool WKPreferencesGetGetUserMediaRequiresFocus(WKPreferencesRef preferencesRef)
     return protect(toImpl(preferencesRef))->getUserMediaRequiresFocus();
 }
 
-void WKPreferencesSetICECandidateFilteringEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setICECandidateFilteringEnabled(enabled);
-}
-
-bool WKPreferencesGetICECandidateFilteringEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->iceCandidateFilteringEnabled();
-}
-
 void WKPreferencesSetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
     protect(toImpl(preferencesRef))->setEnumeratingAllNetworkInterfacesEnabled(enabled);
@@ -1308,16 +1268,6 @@ void WKPreferencesSetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef pre
 bool WKPreferencesGetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->enumeratingAllNetworkInterfacesEnabled();
-}
-
-void WKPreferencesSetMediaCaptureRequiresSecureConnection(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setMediaCaptureRequiresSecureConnection(enabled);
-}
-
-bool WKPreferencesGetMediaCaptureRequiresSecureConnection(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->mediaCaptureRequiresSecureConnection();
 }
 
 void WKPreferencesSetInactiveMediaCaptureStreamRepromptIntervalInMinutes(WKPreferencesRef preferencesRef, double interval)
@@ -1378,16 +1328,6 @@ void WKPreferencesSetDownloadAttributeEnabled(WKPreferencesRef preferencesRef, b
 bool WKPreferencesGetDownloadAttributeEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->downloadAttributeEnabled();
-}
-
-void WKPreferencesSetWebRTCPlatformCodecsInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setWebRTCPlatformCodecsInGPUProcessEnabled(flag);
-}
-
-bool WKPreferencesGetWebRTCPlatformCodecsInGPUProcessEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->webRTCPlatformCodecsInGPUProcessEnabled();
 }
 
 WK_EXPORT void WKPreferencesSetIsAccessibilityIsolatedTreeEnabled(WKPreferencesRef preferencesRef, bool flag)

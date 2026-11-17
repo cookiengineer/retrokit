@@ -75,7 +75,6 @@
 #include "QueryPermissionResultCallback.h"
 #include "ResourceLoadInfo.h"
 #include "RunJavaScriptParameters.h"
-#include "UserMediaPermissionRequestProxy.h"
 #include "WKAPICast.h"
 #include "WKPagePolicyClientInternal.h"
 #include "WKPageRenderingProgressEventsInternal.h"
@@ -101,7 +100,6 @@
 #include <WebCore/ContentRuleListResults.h>
 #include <WebCore/Cursor.h>
 #include <WebCore/FrameLoaderClient.h>
-#include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/OrganizationStorageAccessPromptQuirk.h>
 #include <WebCore/Page.h>
 #include <WebCore/Permissions.h>
@@ -2035,16 +2033,6 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             return true;
         }
 
-        void decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionRequestProxy& permissionRequest) final
-        {
-            if (!m_client.decidePolicyForUserMediaPermissionRequest) {
-                permissionRequest.deny();
-                return;
-            }
-
-            m_client.decidePolicyForUserMediaPermissionRequest(toAPI(&page), toAPI(&frame), toAPI(&userMediaDocumentOrigin), toAPI(&topLevelDocumentOrigin), toAPI(&permissionRequest), m_client.base.clientInfo);
-        }
-        
         void decidePolicyForNotificationPermissionRequest(WebPageProxy& page, API::SecurityOrigin& origin, CompletionHandler<void(bool allowed)>&& completionHandler) final
         {
             if (!m_client.decidePolicyForNotificationPermissionRequest)
@@ -3424,38 +3412,11 @@ bool WKPageIsMockRealtimeMediaSourceCenterEnabled(WKPageRef)
 void WKPageSetMockCaptureDevicesInterrupted(WKPageRef pageRef, bool isCameraInterrupted, bool isMicrophoneInterrupted)
 {
     CRASH_IF_SUSPENDED;
-#if ENABLE(MEDIA_STREAM) && ENABLE(GPU_PROCESS)
-    Ref preferences = toImpl(pageRef)->preferences();
-    if (preferences->useGPUProcessForMediaEnabled()) {
-        Ref gpuProcess = protect(protect(toImpl(pageRef))->configuration().processPool())->ensureGPUProcess();
-        gpuProcess->setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
-    }
-#endif
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
-    toImpl(pageRef)->setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
-#endif
 }
 
 void WKPageTriggerMockCaptureConfigurationChange(WKPageRef pageRef, bool forCamera, bool forMicrophone, bool forDisplay)
 {
     CRASH_IF_SUSPENDED;
-#if ENABLE(MEDIA_STREAM)
-#if USE(GSTREAMER)
-    toImpl(pageRef)->triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-#else
-    MockRealtimeMediaSourceCenter::singleton().triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-#endif // USE(GSTREAMER)
-
-#if ENABLE(GPU_PROCESS)
-    Ref preferences = toImpl(pageRef)->preferences();
-    if (!preferences->useGPUProcessForMediaEnabled())
-        return;
-
-    Ref gpuProcess = protect(protect(toImpl(pageRef))->configuration().processPool())->ensureGPUProcess();
-    gpuProcess->triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-#endif // ENABLE(GPU_PROCESS)
-
-#endif // ENABLE(MEDIA_STREAM)
 }
 
 void WKPageLoadedSubresourceDomains(WKPageRef pageRef, WKPageLoadedSubresourceDomainsFunction callback, void* callbackContext)

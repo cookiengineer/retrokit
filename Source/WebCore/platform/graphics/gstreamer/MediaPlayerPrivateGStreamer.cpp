@@ -31,7 +31,6 @@
 
 #include "AudioTrackPrivateGStreamer.h"
 #include "GStreamerAudioMixer.h"
-#include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerCommon.h"
 #include "GStreamerQuirks.h"
 #include "GStreamerRegistryScanner.h"
@@ -57,10 +56,6 @@
 #include "WebKitAudioSinkGStreamer.h"
 #include "WebKitWebSourceGStreamer.h"
 
-#if ENABLE(MEDIA_STREAM)
-#include "GStreamerMediaStreamSource.h"
-#include "MediaStreamPrivate.h"
-#endif
 
 #if ENABLE(MEDIA_SOURCE)
 #include "MediaSource.h"
@@ -427,17 +422,6 @@ void MediaPlayerPrivateGStreamer::load(const URL&, const LoadOptions&, MediaSour
 }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-void MediaPlayerPrivateGStreamer::load(MediaStreamPrivate& stream)
-{
-    m_streamPrivate = &stream;
-    load(makeString("mediastream://"_s, stream.id()));
-    syncOnClock(false);
-
-    if (RefPtr player = m_player.get())
-        player->play();
-}
-#endif
 
 void MediaPlayerPrivateGStreamer::cancelLoad()
 {
@@ -561,26 +545,6 @@ bool MediaPlayerPrivateGStreamer::paused() const
     // For debug mode (either GStreamer of WebKit) we make some extra check to ensure there is no desynchronization
     // between pipeline and player. In the case of media stream, we just return the result of the pipeline as there are
     // nuances regarding the prerolling creating some regressions in the tests.
-#if !defined(GST_DISABLE_GST_DEBUG) || !defined(NDEBUG) || ENABLE(MEDIA_STREAM)
-    GstState state, pending;
-    auto stateChange = gst_element_get_state(m_pipeline.get(), &state, &pending, 0);
-    bool isPipelinePaused = state <= GST_STATE_PAUSED;
-
-    if (isMediaStreamPlayer())
-        return isPipelinePaused;
-
-#if !defined(GST_DISABLE_GST_DEBUG) || !defined(NDEBUG)
-    if (!isPipelineWaitingPreroll(state, pending, stateChange) && isPipelinePaused != !m_isPipelinePlaying
-        && (stateChange == GST_STATE_CHANGE_SUCCESS || stateChange == GST_STATE_CHANGE_NO_PREROLL)) {
-        GST_WARNING_OBJECT(pipeline(), "states are not synchronized, player paused %s, pipeline paused %s. Current state is %s with %s pending",
-            boolForPrinting(!m_isPipelinePlaying), boolForPrinting(isPipelinePaused),
-            gst_state_get_name(state), gst_state_get_name(pending));
-        ASSERT_NOT_REACHED_WITH_MESSAGE("pipeline and player states are not synchronized");
-    }
-#else
-    UNUSED_VARIABLE(stateChange);
-#endif
-#endif
 
     GST_DEBUG_OBJECT(pipeline(), "paused %s", boolForPrinting(!m_isPipelinePlaying));
     return !m_isPipelinePlaying;
@@ -1166,13 +1130,6 @@ void MediaPlayerPrivateGStreamer::sourceSetup(GstElement* sourceElement)
         webKitWebSrcSetReferrer(source, m_referrer);
         webKitWebSrcSetResourceLoader(source, m_loader);
         webKitWebSrcSetPlayer(source, ThreadSafeWeakPtr { *this });
-#if ENABLE(MEDIA_STREAM)
-    } else if (WEBKIT_IS_MEDIA_STREAM_SRC(sourceElement)) {
-        RefPtr player = m_player.get();
-        auto stream = m_streamPrivate.get();
-        ASSERT(stream);
-        webkitMediaStreamSrcSetStream(WEBKIT_MEDIA_STREAM_SRC(sourceElement), stream, player && player->isVideoPlayer());
-#endif
     }
 }
 
@@ -1650,14 +1607,6 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
     auto role = player->isVideoPlayer() ? "video"_s : "music"_s;
     GstElement* audioSink = nullptr;
 
-#if ENABLE(MEDIA_STREAM)
-    auto deviceId = player->audioOutputDeviceId();
-    if (!deviceId.isEmpty()) {
-        auto [resolvedId, device] = resolveAudioOutputDevice(deviceId);
-        if (device)
-            audioSink = createPlatformAudioSink(role, resolvedId, device);
-    }
-#endif
 
     if (!audioSink)
         audioSink = createPlatformAudioSink(role);
@@ -1677,10 +1626,6 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
 
 bool MediaPlayerPrivateGStreamer::isMediaStreamPlayer() const
 {
-#if ENABLE(MEDIA_STREAM)
-    if (m_source)
-        return WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get());
-#endif
     return m_url.protocolIs("mediastream"_s);
 }
 
@@ -1716,11 +1661,6 @@ MediaTime MediaPlayerPrivateGStreamer::playbackPosition() const
 {
     GST_TRACE_OBJECT(pipeline(), "isEndReached: %s, seeking: %s, seekTime: %s", boolForPrinting(m_isEndReached), boolForPrinting(m_isSeeking), m_seekTarget.time.toString().utf8().data());
 
-#if ENABLE(MEDIA_STREAM)
-    RefPtr player = m_player.get();
-    if (m_streamPrivate && player && player->isVideoPlayer() && !hasFirstVideoSampleReachedSink())
-        return MediaTime::zeroTime();
-#endif
 
     if (m_isSeeking) {
         GST_TRACE_OBJECT(pipeline(), "Seek in progress, returning target time %s", m_seekTarget.toString().ascii().data());
@@ -2042,10 +1982,6 @@ FloatSize MediaPlayerPrivateGStreamer::naturalSize() const
 
 void MediaPlayerPrivateGStreamer::configureMediaStreamAudioTracks()
 {
-#if ENABLE(MEDIA_STREAM)
-    if (WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get()))
-        webkitMediaStreamSrcConfigureAudioTracks(WEBKIT_MEDIA_STREAM_SRC(m_source.get()), volume(), isMuted(), !paused());
-#endif
 }
 
 void MediaPlayerPrivateGStreamer::setVolumeLocked(bool volumeLocked)
@@ -4442,15 +4378,6 @@ bool MediaPlayerPrivateGStreamer::isHolePunchRenderingEnabled() const
     if (m_quirksManagerForTesting)
         return m_quirksManagerForTesting->supportsVideoHolePunchRendering();
 
-#if ENABLE(MEDIA_STREAM)
-    if (m_streamPrivate) {
-        auto* videoTrack = m_streamPrivate->activeVideoTrack();
-        if (!videoTrack)
-            return false;
-
-        return videoTrack->deviceType() != CaptureDevice::DeviceType::Canvas && GStreamerQuirksManager::singleton().supportsVideoHolePunchRendering();
-    }
-#endif
 
     auto& quirksManager = GStreamerQuirksManager::singleton();
     return quirksManager.supportsVideoHolePunchRendering();
@@ -4889,25 +4816,6 @@ void MediaPlayerPrivateGStreamer::checkPlayingConsistency()
     }
 }
 
-#if ENABLE(MEDIA_STREAM)
-std::pair<String, GRefPtr<GstDevice>> MediaPlayerPrivateGStreamer::resolveAudioOutputDevice(const String& deviceId)
-{
-    auto resolvedId = deviceId;
-    if (resolvedId == "default"_s) {
-        const auto& devices = GStreamerAudioCaptureDeviceManager::singleton().speakerDevices();
-        if (!devices.isEmpty()) [[likely]] {
-            const auto idx = devices.findIf([](const CaptureDevice& device) {
-                return device.isDefault();
-            });
-            resolvedId = idx == notFound ? devices.first().persistentId() : devices[idx].persistentId();
-        }
-    }
-    GRefPtr<GstDevice> device;
-    if (auto captureDevice = GStreamerAudioCaptureDeviceManager::singleton().gstreamerDeviceWithUID(resolvedId))
-        device = captureDevice->device();
-    return { resolvedId, device };
-}
-#endif
 
 bool MediaPlayerPrivateGStreamer::applyAudioSinkDevice(GstElement* audioSink, const GRefPtr<GstDevice>& device, const String& deviceId)
 {
@@ -4943,35 +4851,6 @@ bool MediaPlayerPrivateGStreamer::applyAudioSinkDevice(GstElement* audioSink, co
 
 void MediaPlayerPrivateGStreamer::audioOutputDeviceChanged()
 {
-#if ENABLE(MEDIA_STREAM)
-    RefPtr player = m_player.get();
-    if (!player)
-        return;
-
-    auto* sink = audioSink();
-    if (!sink) {
-        GST_DEBUG_OBJECT(pipeline(), "No audio sink, skipping audio output device change.");
-        return;
-    }
-
-    auto deviceId = player->audioOutputDeviceId();
-    bool changed = false;
-
-    if (deviceId.isEmpty()) {
-        // No device set, route back to default pipeline.
-        changed = applyAudioSinkDevice(sink, { }, { });
-    } else {
-        auto [resolvedId, device] = resolveAudioOutputDevice(deviceId);
-        if (device) {
-            auto deviceName = GMallocString::unsafeAdoptFromUTF8(gst_device_get_display_name(device.get()));
-            GST_DEBUG_OBJECT(pipeline(), "Switching to %s<%p>, output '%s'.", GST_OBJECT_NAME(device.get()), device.get(), deviceName.utf8());
-            changed = applyAudioSinkDevice(sink, device, resolvedId);
-        } else
-            GST_WARNING_OBJECT(pipeline(), "Could not obtain GstDevice for '%s'.", resolvedId.utf8().data());
-    }
-
-    GST_DEBUG_OBJECT(pipeline(), "%s to audio output device '%s'.", changed ? "Changed" : "Could not change", deviceId.utf8().data());
-#endif
 }
 
 String MediaPlayerPrivateGStreamer::codecForStreamId(TrackID streamId)

@@ -31,7 +31,6 @@
 #import "CMUtilities.h"
 #import "FourCC.h"
 #if USE(LIBWEBRTC)
-#import "LibWebRTCProvider.h"
 #endif
 #import "Logging.h"
 #import "MediaStrategy.h"

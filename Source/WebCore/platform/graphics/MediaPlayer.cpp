@@ -69,9 +69,6 @@
 #include "MediaSourcePrivateClient.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-#include "MediaStreamPrivate.h"
-#endif
 
 #if USE(GSTREAMER)
 #include "MediaPlayerPrivateGStreamer.h"
@@ -99,9 +96,6 @@
 #include "MockMediaPlayerMediaSource.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION)
-#include "MediaPlayerPrivateMediaStreamAVFObjC.h"
-#endif
 
 #if ENABLE(COCOA_WEBM_PLAYER)
 #include "MediaPlayerPrivateWebM.h"
@@ -136,9 +130,6 @@ public:
     void load(const String&) final { }
 #if ENABLE(MEDIA_SOURCE)
     void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) final { }
-#endif
-#if ENABLE(MEDIA_STREAM)
-    void load(MediaStreamPrivate&) final { }
 #endif
     void cancelLoad() final { }
 
@@ -332,9 +323,6 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 #endif
 #if ENABLE(COCOA_WEBM_PLAYER)
         MediaPlayerPrivateWebM::registerMediaEngine(addMediaEngine);
-#endif
-#if ENABLE(MEDIA_STREAM)
-        MediaPlayerPrivateMediaStreamAVFObjC::registerMediaEngine(addMediaEngine);
 #endif
     }
 #endif // USE(AVFOUNDATION)
@@ -555,9 +543,6 @@ bool MediaPlayer::load(const URL& url, const LoadOptions& options)
 #if ENABLE(MEDIA_SOURCE)
     m_mediaSource = nullptr;
 #endif
-#if ENABLE(MEDIA_STREAM)
-    m_mediaStream = nullptr;
-#endif
 
     loadWithNextMediaEngine(nullptr);
     return static_cast<bool>(m_currentMediaEngine);
@@ -578,19 +563,6 @@ bool MediaPlayer::load(const URL& url, const LoadOptions& options, MediaSourcePr
 }
 #endif // ENABLE(MEDIA_SOURCE)
 
-#if ENABLE(MEDIA_STREAM)
-bool MediaPlayer::load(MediaStreamPrivate& mediaStream)
-{
-    ASSERT(!m_reloadTimer.isActive());
-
-    cancelSniffer();
-    m_sniffAttempted = false;
-    m_mediaStream = mediaStream;
-    m_loadOptions = { };
-    loadWithNextMediaEngine(nullptr);
-    return static_cast<bool>(m_currentMediaEngine);
-}
-#endif
 
 CheckedPtr<const MediaPlayerFactory> MediaPlayer::nextBestMediaEngine(const MediaPlayerFactory* current)
 {
@@ -599,10 +571,6 @@ CheckedPtr<const MediaPlayerFactory> MediaPlayer::nextBestMediaEngine(const Medi
 #if ENABLE(MEDIA_SOURCE)
             if (!!m_mediaSource.get())
                 return PlatformMediaDecodingType::MediaSource;
-#endif
-#if ENABLE(MEDIA_STREAM)
-            if (!!m_mediaStream)
-                return PlatformMediaDecodingType::MediaStream;
 #endif
             return PlatformMediaDecodingType::FileOrHLS;
         }(),
@@ -706,11 +674,6 @@ void MediaPlayer::loadWithNextMediaEngine(const MediaPlayerFactory* current)
 #if ENABLE(MEDIA_SOURCE)
         if (RefPtr mediaSource = m_mediaSource.get())
             playerPrivate->load(m_url, m_loadOptions, *mediaSource);
-        else
-#endif
-#if ENABLE(MEDIA_STREAM)
-        if (RefPtr mediaStream = m_mediaStream)
-            playerPrivate->load(*mediaStream);
         else
 #endif
         playerPrivate->load(m_url, m_loadOptions);
@@ -1457,10 +1420,6 @@ bool MediaPlayer::attemptSniffAndReload()
     // object rather than a fetchable body, and remote playback does its own engine selection.
 #if ENABLE(MEDIA_SOURCE)
     if (m_mediaSource.get())
-        return false;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    if (m_mediaStream)
         return false;
 #endif
     if (m_loadOptions.requiresRemotePlayback)

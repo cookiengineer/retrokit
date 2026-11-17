@@ -151,7 +151,6 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitContextMenuItem.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitCookieManager.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDefines.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDeviceInfoPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDownload.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditingCommands.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditorState.h.in
@@ -191,7 +190,6 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContent.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContentFilterStore.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContentManager.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMediaPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMessage.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebContext.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebResource.h.in
@@ -287,10 +285,8 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
-    "${WEBCORE_DIR}/Modules/mediastream"
     "${WEBKIT_DIR}/NetworkProcess/glib"
     "${WEBKIT_DIR}/NetworkProcess/soup"
-    "${WEBKIT_DIR}/NetworkProcess/webrtc/rice"
     "${WEBKIT_DIR}/Platform/IPC/glib"
     "${WEBKIT_DIR}/Platform/IPC/unix"
     "${WEBKIT_DIR}/Platform/classifier"
@@ -319,7 +315,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk"
     "${WEBKIT_DIR}/WebProcess/Inspector/gtk"
-    "${WEBKIT_DIR}/WebProcess/Network/webrtc/rice"
     "${WEBKIT_DIR}/WebProcess/glib"
     "${WEBKIT_DIR}/WebProcess/gtk"
     "${WEBKIT_DIR}/WebProcess/soup"
@@ -364,19 +359,14 @@ endif ()
 
 if (USE_LIBWEBRTC)
     list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
-        "${THIRDPARTY_DIR}/libwebrtc/Source/"
-        "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
     )
 endif ()
 
 if (ENABLE_MEDIA_STREAM)
     list(APPEND WebKit_SOURCES
-        UIProcess/glib/UserMediaPermissionRequestManagerProxyGLib.cpp
 
-        WebProcess/glib/UserMediaCaptureManager.cpp
     )
     list(APPEND WebKit_MESSAGES_IN_FILES
-        WebProcess/glib/UserMediaCaptureManager
     )
 endif ()
 
@@ -606,7 +596,6 @@ GI_INTROSPECT(WebKit${WEBKITGTK_API_INFIX} ${WEBKITGTK_API_VERSION} webkit${WEBK
 GI_DOCGEN(WebKit${WEBKITGTK_API_INFIX} gtk/gtk${GTK_API_VERSION}-webkitgtk.toml.in
     CONTENT_TEMPLATES
         gtk/gtk${GTK_API_VERSION}-urlmap.js
-        glib/contributing.md
         glib/environment-variables.md
         glib/profiling.md
         glib/remote-inspector.md

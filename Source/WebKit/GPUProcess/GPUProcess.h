@@ -56,7 +56,6 @@
 #endif
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-#include <WebCore/DisplayCapturePromptType.h>
 #endif
 
 #if PLATFORM(VISION) && ENABLE(MODEL_PROCESS)
@@ -125,10 +124,6 @@ public:
 
     WebCore::NowPlayingManager& nowPlayingManager() LIFETIME_BOUND;
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    WorkQueue& videoMediaStreamTrackRendererQueue();
-    void ensureAVCaptureServerConnection();
-#endif
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
     WorkQueue& libWebRTCCodecsQueue();
@@ -148,9 +143,6 @@ public:
     void resolveBookmarkDataForCacheDirectory(std::span<const uint8_t> bookmarkData);
 #endif
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    void processIsStartingToCaptureAudio(GPUConnectionToWebProcess&);
-#endif
 
 
 #if HAVE(AUDIT_TOKEN)
@@ -210,22 +202,6 @@ private:
     bool NODELETE updatePreference(std::optional<bool>& oldPreference, std::optional<bool>& newPreference);
     void userPreferredLanguagesChanged(Vector<String>&&);
 
-#if ENABLE(MEDIA_STREAM)
-    void setMockCaptureDevicesEnabled(bool);
-    void enableMicrophoneMuteStatusAPI();
-    void setOrientationForMediaCapture(WebCore::IntDegrees);
-    void rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
-    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier, CompletionHandler<void()>&&);
-    void updateCaptureOrigin(const WebCore::SecurityOriginData&, WebCore::ProcessIdentifier);
-    void addMockMediaDevice(const WebCore::MockMediaDevice&);
-    void clearMockMediaDevices();
-    void removeMockMediaDevice(const String&);
-    void setMockMediaDeviceIsEphemeral(const String&, bool);
-    void resetMockMediaDevices();
-    void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
-    void triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay);
-    void setShouldListenToVoiceActivity(bool);
-#endif
 #if HAVE(SCREEN_CAPTURE_KIT)
     void promptForGetDisplayMedia(WebCore::DisplayCapturePromptType, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
     void cancelGetDisplayMediaPrompt();
@@ -262,18 +238,6 @@ private:
 
     GPUProcessPreferences m_preferences;
 
-#if ENABLE(MEDIA_STREAM)
-    struct MediaCaptureAccess {
-        bool allowAudioCapture { false };
-        bool allowVideoCapture { false };
-        bool allowDisplayCapture { false };
-    };
-    HashMap<WebCore::ProcessIdentifier, MediaCaptureAccess> m_mediaCaptureAccessMap;
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    RefPtr<WorkQueue> m_videoMediaStreamTrackRendererQueue;
-#endif
-    WebCore::IntDegrees m_orientation { 0 };
-#endif
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
     RefPtr<WorkQueue> m_libWebRTCCodecsQueue;
 #endif

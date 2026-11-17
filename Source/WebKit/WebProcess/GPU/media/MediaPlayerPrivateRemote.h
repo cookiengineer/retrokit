@@ -35,11 +35,11 @@
 #include "RemoteMediaResourceIdentifier.h"
 #include "RemoteMediaResourceLoaderIdentifier.h"
 #include "RemoteMediaResourceProxy.h"
-#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "RemoteVideoFrameProxy.h"
 #include "TextTrackPrivateRemote.h"
 #include "VideoLayerRemote.h"
 #include "VideoTrackPrivateRemote.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include <WebCore/MediaPlayerPrivate.h>
 #include <WebCore/MediaTimeUpdateData.h>
 #include <WebCore/PlatformLayer.h>
@@ -254,9 +254,6 @@ private:
 
 #if ENABLE(MEDIA_SOURCE)
     void load(const URL&, const LoadOptions&, WebCore::MediaSourcePrivateClient&) final;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    void load(WebCore::MediaStreamPrivate&) final;
 #endif
     void cancelLoad() final;
 

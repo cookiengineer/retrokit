@@ -183,10 +183,6 @@ struct QuirksData {
 #if PLATFORM(VISION)
         ShouldDisableFullscreenVideoAspectRatioAdaptiveSizingQuirk,
 #endif
-#if ENABLE(MEDIA_STREAM)
-        ShouldDisableImageCaptureQuirk,
-        ShouldAllowMediaStreamTrackSerializationQuirk,
-#endif
         ShouldDisableLazyIframeLoadingQuirk,
 #if PLATFORM(IOS_FAMILY)
         ShouldDisablePointerEventsQuirk,
@@ -203,23 +199,7 @@ struct QuirksData {
 #endif
         ShouldDispatchSyntheticMouseEventsWhenModifyingSelectionQuirk,
         ShouldDispatchSimulatedMouseEventsAssumeDefaultPreventedQuirk,
-#if ENABLE(MEDIA_STREAM)
-        ShouldEnableCameraAndMicrophonePermissionStateQuirk,
-        ShouldEnableCameraBackgroundPlayback,
-        ShouldEnableEnumerateDeviceQuirk,
-        ShouldEnableFacebookFlagQuirk,
-#endif
         ShouldEnableFontLoadingAPIQuirk,
-#if ENABLE(MEDIA_STREAM)
-        ShouldEnableLegacyGetUserMediaQuirk,
-        ShouldEnableRemoteTrackLabelQuirk,
-#endif
-#if ENABLE(WEB_RTC)
-        ShouldEnableRTCEncodedStreamsQuirk,
-#endif
-#if ENABLE(MEDIA_STREAM)
-        ShouldEnableSpeakerSelectionPermissionsPolicyQuirk,
-#endif
         ShouldEnterNativeFullscreenWhenCallingElementRequestFullscreen,
         ShouldExposeShowModalDialog,
 #if ENABLE(FLIP_SCREEN_DIMENSIONS_QUIRKS)

@@ -97,26 +97,6 @@ public:
 
     void updateProcessAssertion();
 
-#if ENABLE(MEDIA_STREAM)
-    void setUseMockCaptureDevices(bool);
-    void enableMicrophoneMuteStatusAPI();
-    void setOrientationForMediaCapture(WebCore::IntDegrees);
-    void rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
-    void startMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
-    void stopMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
-    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier, WebPageProxyIdentifier, CompletionHandler<void()>&&);
-    void updateCaptureOrigin(const WebCore::SecurityOriginData&, WebCore::ProcessIdentifier);
-    void addMockMediaDevice(const WebCore::MockMediaDevice&);
-    void clearMockMediaDevices();
-    void removeMockMediaDevice(const String&);
-    void setMockMediaDeviceIsEphemeral(const String&, bool);
-    void resetMockMediaDevices();
-    void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
-    void triggerMockCaptureConfigurationChange(bool forCamera, bool forMicrophone, bool forDisplay);
-    void updateSandboxAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture);
-    void setShouldListenToVoiceActivity(const WebPageProxy&, bool);
-    void setPageUsingMicrophone(WebPageProxyIdentifier identifier) { m_lastPageUsingMicrophone = identifier; }
-#endif
 
 #if HAVE(SCREEN_CAPTURE_KIT)
     void promptForGetDisplayMedia(WebCore::DisplayCapturePromptType, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
@@ -219,13 +199,6 @@ private:
 
     void setMediaCodecCapabilities(GPUProcessMediaCodecCapabilities&& mediaCodecCapabilities) { s_gpuProcessMediaCodecCapabilities = WTF::move(mediaCodecCapabilities); }
 
-#if ENABLE(MEDIA_STREAM)
-    void voiceActivityDetected();
-    void microphoneMuteStatusChanged(bool isMuting);
-#if PLATFORM(IOS_FAMILY)
-    void statusBarWasTapped(CompletionHandler<void()>&&);
-#endif
-#endif // ENABLE(MEDIA_STREAM)
 
     GPUProcessCreationParameters processCreationParameters();
     void platformInitializeGPUProcessParameters(GPUProcessCreationParameters&);
@@ -235,14 +208,6 @@ private:
 #endif
 
     RefPtr<ProcessThrottler::Activity> m_activityFromWebProcesses;
-#if ENABLE(MEDIA_STREAM)
-    bool m_useMockCaptureDevices { false };
-    WebCore::IntDegrees m_orientation { 0 };
-    WeakHashSet<WebPageProxy> m_pagesListeningToVoiceActivity;
-    bool m_shouldListenToVoiceActivity { false };
-    Markable<WebPageProxyIdentifier> m_lastPageUsingMicrophone;
-    bool m_isMicrophoneMuteStatusAPIEnabled { false };
-#endif
 #if PLATFORM(COCOA)
     bool m_hasSentTCCDSandboxExtension { false };
     bool m_hasSentCameraSandboxExtension { false };

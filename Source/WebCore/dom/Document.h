@@ -317,9 +317,6 @@ struct SystemPreviewInfo;
 class LazyLoadVideoObserver;
 #endif
 
-#if ENABLE(WEB_RTC)
-class RTCPeerConnection;
-#endif
 
 enum class CollectionType : uint8_t;
 enum CSSPropertyID : uint16_t;
@@ -924,14 +921,7 @@ public:
     IDBClient::IDBConnectionProxy* idbConnectionProxy() final;
     StorageConnection* storageConnection();
     SocketProvider* NODELETE socketProvider() final;
-    RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
-
-#if ENABLE(WEB_RTC)
-    RTCNetworkManager* rtcNetworkManager() { return m_rtcNetworkManager.get(); }
-    WEBCORE_EXPORT void setRTCNetworkManager(Ref<RTCNetworkManager>&&);
-    void startGatheringRTCLogs(Function<void(String&& logType, String&& logMessage, String&& logLevel, RefPtr<RTCPeerConnection>&&)>&&);
-    void stopGatheringRTCLogs();
-#endif
+    
 
     CanNavigateState canNavigate(Frame* targetFrame, const URL& destinationURL = URL());
 
@@ -1704,15 +1694,6 @@ public:
     bool NODELETE isCapturing() const;
     WEBCORE_EXPORT void updateIsPlayingMedia();
 
-#if ENABLE(MEDIA_STREAM) && ENABLE(MEDIA_SESSION)
-    void processCaptureStateDidChange(Function<bool(const Page&)>&&, Function<bool(const RealtimeMediaSource&)>&&, MediaSessionAction);
-    void cameraCaptureStateDidChange();
-    void microphoneCaptureStateDidChange();
-    void screenshareCaptureStateDidChange();
-    void setShouldListenToVoiceActivity(bool);
-    void voiceActivityDetected();
-    bool NODELETE hasMutedAudioCaptureDevice() const;
-#endif
     void pageMutedStateDidChange();
     void visibilityAdjustmentStateDidChange();
 #if PLATFORM(IOS_FAMILY)
@@ -1792,15 +1773,6 @@ public:
     void clearRenderingIsSuppressedForViewTransition();
     void flushDeferredRenderingIsSuppressedForViewTransitionChanges();
 
-#if ENABLE(MEDIA_STREAM)
-    void setHasCaptureMediaStreamTrack() { m_hasHadCaptureMediaStreamTrack = true; }
-    bool hasHadCaptureMediaStreamTrack() const { return m_hasHadCaptureMediaStreamTrack; }
-    void stopMediaCapture(MediaProducerMediaCaptureKind);
-    void mediaStreamCaptureStateChanged();
-    size_t activeMediaElementsWithMediaStreamCount() const { return m_activeMediaElementsWithMediaStreamCount; }
-    void addCaptureSource(Ref<RealtimeMediaSource>&&);
-    void updateVideoCaptureStateForMicrophoneInterruption(bool);
-#endif
 
 // FIXME: Find a better place for this functionality.
 #if ENABLE(TELEPHONE_NUMBER_DETECTION)
@@ -2272,10 +2244,6 @@ private:
 
     bool isObservingContentVisibilityTargets() const;
 
-#if ENABLE(MEDIA_STREAM)
-    void updateCaptureAccordingToMutedState();
-    MediaProducerMediaStateFlags computeCaptureState() const;
-#endif
     void securityOriginDidChange() final;
 
     inline Ref<DocumentSyncData> syncData();
@@ -2634,9 +2602,6 @@ private:
     WeakPtr<HTMLElement, WeakPtrImplWithEventTargetData> m_popoverHintPointerDownTarget;
     WeakPtr<HTMLDialogElement, WeakPtrImplWithEventTargetData> m_dialogPointerDownTarget;
 
-#if ENABLE(WEB_RTC)
-    RefPtr<RTCNetworkManager> m_rtcNetworkManager;
-#endif
 
     Vector<Function<void()>> m_whenIsVisibleHandlers;
 
@@ -2649,12 +2614,6 @@ private:
     const std::unique_ptr<WakeLockManager> m_wakeLockManager;
     std::unique_ptr<SleepDisabler> m_sleepDisabler;
 
-#if ENABLE(MEDIA_STREAM)
-    size_t m_activeMediaElementsWithMediaStreamCount { 0 };
-    HashSet<Ref<RealtimeMediaSource>> m_captureSources;
-    bool m_isUpdatingCaptureAccordingToMutedState { false };
-    bool m_shouldListenToVoiceActivity { false };
-#endif
 
     struct PendingScrollEventTargetList;
     std::unique_ptr<PendingScrollEventTargetList> m_pendingScrollEventTargetList;
@@ -2804,9 +2763,6 @@ private:
     bool m_hasLoggedXSLTDeprecationWarning { false };
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    bool m_hasHadCaptureMediaStreamTrack { false };
-#endif
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
     bool m_hasHDRContent { false };

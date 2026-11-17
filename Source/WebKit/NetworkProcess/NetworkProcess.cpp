@@ -55,7 +55,6 @@
 #include "PreconnectTask.h"
 #include "PrivateClickMeasurementPersistentStore.h"
 #include "ProcessAssertion.h"
-#include "RTCDataChannelRemoteManagerProxy.h"
 #include "RemoteWorkerType.h"
 #include "ResourceLoadStatisticsStore.h"
 #include "ShouldGrandfatherStatistics.h"
@@ -3386,15 +3385,6 @@ void NetworkProcess::clearAppPrivacyReportTestingData(PAL::SessionID sessionID, 
 }
 #endif
 
-#if ENABLE(WEB_RTC)
-RTCDataChannelRemoteManagerProxy& NetworkProcess::rtcDataChannelProxy()
-{
-    ASSERT(isMainRunLoop());
-    if (!m_rtcDataChannelProxy)
-        m_rtcDataChannelProxy = RTCDataChannelRemoteManagerProxy::create(*this);
-    return *m_rtcDataChannelProxy;
-}
-#endif
 
 void NetworkProcess::addWebPageNetworkParameters(PAL::SessionID sessionID, WebPageProxyIdentifier pageID, WebPageNetworkParameters&& parameters)
 {

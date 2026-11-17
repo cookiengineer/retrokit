@@ -50,7 +50,6 @@
 #include "Logging.h"
 #include "NotImplemented.h"
 #include "Performance.h"
-#include "RTCDataChannelRemoteHandlerConnection.h"
 #include "ReportingScope.h"
 #include "ScheduledAction.h"
 #include "ScriptExecutionContextInlines.h"
@@ -226,17 +225,6 @@ SocketProvider* WorkerGlobalScope::socketProvider()
     return m_socketProvider.get();
 }
 
-RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerGlobalScope::createRTCDataChannelRemoteHandlerConnection()
-{
-    RefPtr<RTCDataChannelRemoteHandlerConnection> connection;
-    callOnMainThreadAndWait([workerThread = Ref { thread() }, &connection]() mutable {
-        if (CheckedPtr workerLoaderProxy = workerThread->workerLoaderProxy())
-            connection = workerLoaderProxy->createRTCDataChannelRemoteHandlerConnection();
-    });
-    ASSERT(connection);
-
-    return connection;
-}
 
 IDBClient::IDBConnectionProxy* WorkerGlobalScope::idbConnectionProxy()
 {

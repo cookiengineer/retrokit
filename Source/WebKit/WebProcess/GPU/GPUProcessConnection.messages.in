@@ -34,9 +34,6 @@ messages -> GPUProcessConnection WantsDispatchMessage {
     BeginRoutingArbitrationWithCategory(enum:uint8_t WebCore::AudioSessionCategory category) -> (enum:uint8_t WebCore::AudioSessionRoutingArbitrationError error, enum:bool WebCore::AudioSessionRoutingArbitrationClient::DefaultRouteChanged defaultRouteChanged)
     EndRoutingArbitration();
 #endif
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    ResetAudioMediaStreamTrackRendererInternalUnit(WebKit::AudioMediaStreamTrackRendererInternalUnitIdentifier identifier)
-#endif
 }
 
 #endif // ENABLE(GPU_PROCESS)

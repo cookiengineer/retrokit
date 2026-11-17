@@ -220,9 +220,6 @@ namespace WebCore {
     String searchMenuClearRecentSearchesText();
 #endif
 
-#if ENABLE(MEDIA_STREAM)
-    String defaultSystemSpeakerLabel();
-#endif
 
     String AXWebAreaText();
     String AXLinkText();

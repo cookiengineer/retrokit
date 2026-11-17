@@ -175,7 +175,6 @@ list(APPEND PAL_UNIFIED_SOURCE_LIST_FILES
 )
 
 list(APPEND PAL_PRIVATE_INCLUDE_DIRECTORIES
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
     "${PAL_DIR}/pal/avfoundation"
     "${PAL_DIR}/pal/cf"
     "${PAL_DIR}/pal/cocoa"

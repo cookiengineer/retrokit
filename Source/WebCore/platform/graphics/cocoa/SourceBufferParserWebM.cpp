@@ -38,7 +38,6 @@
 #include "ExceptionOr.h"
 #include "H264UtilitiesCocoa.h"
 #include "InbandTextTrackPrivate.h"
-#include "LibWebRTCMacros.h"
 #include "Logging.h"
 #include "MediaDescription.h"
 #include "MediaSampleAVFObjC.h"
