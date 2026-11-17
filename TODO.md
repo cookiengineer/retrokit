@@ -12,12 +12,34 @@ Device Motion/Orientation · Geolocation · libsecret · Media Usage
 Web API Statistics · Legacy Custom Protocol · PlayStation platform
 ```
 
+## In progress — media capture / WebRTC / media recorder
+
+Commit `72ba05388` removes the source for `media-capture`, `webrtc` and
+`media-recorder`. Debian builds; the feature is **not verified yet**.
+
+Prioritized first:
+
+- [ ] Run `make smoke DISTRO=debian`.
+- [ ] Run `make build DISTRO=archlinux && make smoke DISTRO=archlinux`.
+- [ ] Remove the temporary compatibility shims until `equivalence` is clean:
+      `WKPreferences` capture/WebRTC getters, GTK `WebKitSettings` media
+      properties, `WebProcessProxy` capture state, `MediaProducer` capture
+      state, `APIUIClient` user-media callbacks, `PermissionName` media names,
+      `AudioContext` MediaStream factories, process-pool capture options,
+      `HTMLInputElement` `capture`, and the no-op preferences listed in
+      [handover.md](./handover.md).
+- [ ] Remove the remaining `#if ENABLE(MEDIA_STREAM)` / `ENABLE(WEB_RTC)`
+      blocks (121 / 151 / 9 leak hits) and clean `EventInterfaces.in`,
+      `EventTargetFactory.in`, `WebCoreBuiltinNames.h` and inspector settings.
+- [ ] Curate `divergence.tsv` for the 734 first-party deletions, the 19,510
+      `Source/ThirdParty/libwebrtc` files and the new 2.54 files.
+- [ ] Only then mark `media-capture`, `webrtc` and `media-recorder` complete.
+
 ## Next up
 
-- [ ] Media stack — capture/streams (`media-capture`), recorder
-      (`media-recorder`), encrypted media (`encrypted-media`), payment
-      (`payment`), fullscreen/PiP (`fullscreen-pip`), WebRTC (`webrtc`) and
-      wireless playback (`wireless-playback`).
+- [ ] Encrypted media (`encrypted-media`), payment (`payment`),
+      fullscreen/PiP (`fullscreen-pip`) and wireless playback
+      (`wireless-playback`).
 - [ ] WebGL / WebGL2 — the largest remaining feature; plan this separately
       from the media stack.
 
@@ -27,10 +49,10 @@ Web API Statistics · Legacy Custom Protocol · PlayStation platform
 - [ ] Remove Payment Request and Apple Pay (`payment`)
 - [ ] Remove Encrypted Media and Thunder (`encrypted-media`)
 - [ ] Remove Fullscreen and Picture-in-Picture (`fullscreen-pip`)
-- [ ] Remove WebRTC (`webrtc`)
+- [ ] Remove WebRTC (`webrtc`) — in progress, see above
 - [ ] Remove Wireless Playback Target (`wireless-playback`)
-- [ ] Remove Media Capture/Streams (`media-capture`)
-- [ ] Remove Media Recorder (`media-recorder`)
+- [ ] Remove Media Capture/Streams (`media-capture`) — in progress, see above
+- [ ] Remove Media Recorder (`media-recorder`) — in progress, see above
 - [ ] Remove Media Statistics (`media-statistics`, 3 work items)
 - [ ] Remove remaining site-specific quirks (`quirks`, 2 work items)
 - [ ] Remove Web Automation/WebDriver (`automation`)

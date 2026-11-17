@@ -11,6 +11,9 @@
   It is pushed and tracks `origin/migrate/2.54`.
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
+- In progress on `migrate/2.54`: media capture, media streams, WebRTC and
+  MediaRecorder (`72ba05388`); Debian built before the final guard cleanup,
+  remaining cleanup and verification are tracked in `handover.md` section 0.
 - Completed on `migrate/2.54`: WebXR, SystemD/journald, Touch Bar, FTP,
   Gamepad, Device Motion/Orientation, Geolocation, libsecret, Media Usage,
   Web API Statistics, Legacy Custom Protocol and PlayStation platform support.

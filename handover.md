@@ -2,6 +2,81 @@
 
 Last updated: 2026-11-17
 
+## 0. Immediate priorities — media capture / WebRTC WIP
+
+**Status:** media capture, media streams, WebRTC and MediaRecorder were removed
+in commit `72ba05388` (`:unicorn: Remove Media Capture, Media Streams and
+WebRTC`). The Debian GTK build completed successfully (WebKit + MiniBrowser) before
+the final scripted guard cleanup, which has not been recompiled. The feature
+is **not finished**: the verification gates and equivalence cleanup below are
+still open.
+
+Do these first, in order:
+
+1. **Re-run the build gates.**
+   - `make smoke DISTRO=debian` (the build is green; smoke was interrupted).
+   - `make build DISTRO=archlinux && make smoke DISTRO=archlinux`.
+   - Expect GTK-only failures; no other port is targeted.
+
+2. **Clear the equivalence backlog.** Current state:
+   - `media-capture`: 186 errors
+   - `webrtc`: 27 errors
+   - `media-recorder`: 4 errors
+   The remaining hits are mostly compatibility shims intentionally left to keep
+   the tree building. Remove them, then re-run `equivalence` until all three
+   features report 0 errors:
+   - `Source/WebKit/UIProcess/API/C/WKPreferences.cpp` — 54 capture/WebRTC
+     preference getters/setters.
+   - GTK `WebKitSettings` properties `enable-media-stream`,
+     `enable-mock-capture-devices`, `enable-webrtc`, plus
+     `webkitSettingsSetMediaCaptureRequiresSecureConnection` and
+     `webkitSettingsSetGetUserMediaRequiresFocus`.
+   - `WebProcessProxy.h` capture-state helpers, `MediaProducer.h` capture
+     state, `APIUIClient.h` user-media/screen-capture callbacks,
+     `PermissionName.h` media permission names.
+   - `AudioContext.h` MediaStream node factories, `APIProcessPoolConfiguration.h`
+     and `WKContextConfigurationRef.cpp` capture-in-GPU options,
+     `WKOpenPanelParametersRef.cpp` capture flag,
+     `WebKitDOMDeprecated.cpp` / `WebKitDOMHTMLInputElement.cpp`
+     `capture` attribute, and `HTMLInputElement.idl`.
+   - Remove the no-op preference entries that were re-added only to keep the
+     settings APIs compiling: `MediaDevicesEnabled`, `PeerConnectionEnabled`,
+     `MockCaptureDevicesEnabled`, `ICECandidateFilteringEnabled`,
+     `MediaCaptureRequiresSecureConnection`, `GetUserMediaRequiresFocus`,
+     `WebRTCPlatformCodecsInGPUProcessEnabled`.
+
+3. **Strip residual guards.** Current leak scans:
+   - `media-capture`: 121 occurrences
+   - `webrtc`: 151 occurrences
+   - `media-recorder`: 9 occurrences
+   Most are `#if ENABLE(MEDIA_STREAM)` / `ENABLE(WEB_RTC)` blocks that survived
+   because they had an `#else`/`#elif`. Remove them manually; also clean
+   `EventInterfaces.in`, `EventTargetFactory.in`, `WebCoreBuiltinNames.h` and
+   the inspector `Page.json` settings. Re-run `leaks` for all three features.
+
+4. **Curate the manifest.**
+   - Add per-file rows for the 734 first-party deletions and for
+     `Source/ThirdParty/libwebrtc` (19,510 files).
+   - Add rows for the new 2.54-only media/WebRTC files that were deleted.
+   - Attribute the shared `mediastream` files correctly: `media-capture`,
+     `webrtc` and `media-recorder` currently overlap because the old fork
+     removed them in adjacent commits.
+
+5. **Refresh the docs and commit.** Move media capture, WebRTC and media
+   recorder to the completed list only after steps 1–4 pass. Update
+   `TODO.md`, `MIGRATION.md`, `SECURITY.md` and the manifest row count.
+
+Important invariants for the remaining work:
+
+- Keep `SharedVideoFrame`, `SharedVideoFrameInfo`, `SampleBufferDisplayLayer*`
+  and `RemoteVideoFrameObjectHeapProxy*`; WebGL, WebGPU and media playback use
+  them even though they live under `GPUProcess/webrtc` and
+  `WebProcess/GPU/webrtc`.
+- Do not restore `Source/ThirdParty/libwebrtc` or anything under
+  `Modules/mediastream` / `platform/mediastream`.
+- The no-op preference names above are temporary and must not survive the
+  cleanup.
+
 ## 1. Where we are
 
 RetroKit is being migrated from WebKitGTK **2.34.1** to WebKitGTK **2.54.2**.
