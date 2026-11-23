@@ -702,6 +702,8 @@ device-sensors	file	-	Source/WebInspectorUI/UserInterface/Models/ScriptTimelineR
 device-sensors	build_ref	UIProcess/ios/WebDeviceOrientationUpdateProviderProxy \	Source/WebKit/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=158; commit=a095f6f1d0b6
 device-sensors	build_ref	WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider \	Source/WebKit/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=214; commit=a095f6f1d0b6
 device-sensors	file	-	Source/WebKit/DerivedSources.make	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/MigratedHeaders-input.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/MigratedHeaders-output.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebKit/Modules/OSX_Private.modulemap	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebKit/Modules/iOS_Private.modulemap	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebKit/PlatformCocoa.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
@@ -2346,6 +2348,8 @@ geolocation	build_ref	UIProcess/API/C/WKGeolocationManager.h	Source/WebKit/Heade
 geolocation	build_ref	UIProcess/API/C/WKGeolocationPermissionRequest.h	Source/WebKit/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=58; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/API/C/WKGeolocationPosition.h	Source/WebKit/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=59; commit=ba5ff6e41dbe
 geolocation	file	-	Source/WebKit/Headers.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/MigratedHeaders-input.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/MigratedHeaders-output.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/Modules/OSX_Private.modulemap	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/Modules/iOS_Private.modulemap	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/PlatformGTK.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
@@ -2548,11 +2552,19 @@ libsecret	file	-	Source/cmake/OptionsGTK.cmake	modified	source	manual:libsecret-
 libsecret	flag	WEBKIT_OPTION_DEFINE(USE_LIBSECRET "Whether to enable the persistent credential storage using libsecret." PUBLIC ON)	Source/cmake/OptionsGTK.cmake	removed	source	manual:libsecret-2.54	libsecret integration removal (2.54)
 libsecret	file	-	containers/archlinux.Containerfile	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
 libsecret	file	-	containers/debian.Containerfile	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
+maintenance	file	-	Source/JavaScriptCore/DerivedSources-input.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/JavaScriptCore/DerivedSources-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/JavaScriptCore/Scripts/check-xcfilelists.sh	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/JavaScriptCore/UnifiedSources-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WTF/Scripts/SymlinkedHeaders-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WTF/Scripts/SymlinkedHeaders.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
 maintenance	file	-	Source/WTF/wtf/StringExtras.h	modified	source	f00442c33ea4904f6deac62075b8da554f8e910c	origin=f00442c33ea4904f6deac62075b8da554f8e910c :bug: Fix for MEMMEM
 maintenance	build_ref	"${WEBCORE_DIR}/Modules/speech"	Source/WebCore/CMakeLists.txt	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=43; commit=b5f9982ac10e
 maintenance	build_ref	"${WEBCORE_DIR}/bridge/c"	Source/WebCore/CMakeLists.txt	removed	source	82d0b2e14fcac3b505e686aaa360dd27963d725e	line=68; commit=82d0b2e14fca
 maintenance	build_ref	ADD_SOURCE_WEBCORE_DERIVED_DEPENDENCIES(${WEBCORE_DIR}/css/StyleResolver.cpp)	Source/WebCore/CMakeLists.txt	removed	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	line=1815; commit=7313e9de4b1d
 maintenance	build_ref	Modules/speech	Source/WebCore/CMakeLists.txt	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=180; commit=b5f9982ac10e
+maintenance	file	-	Source/WebCore/DerivedSources-input.xcfilelist	removed	source	curated	Xcode-only file list; GTK fork has no Xcode build
+maintenance	file	-	Source/WebCore/DerivedSources-output.xcfilelist	removed	source	curated	Xcode-only file list; GTK fork has no Xcode build
 maintenance	config_line	$(WEB_DOM_HEADERS) \	Source/WebCore/DerivedSources.make	removed	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	line=1172; commit=7313e9de4b1d
 maintenance	config_line	WEB_DOM_HEADERS :=	Source/WebCore/DerivedSources.make	removed	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	line=1167; commit=7313e9de4b1d
 maintenance	config_line	\	Source/WebCore/DerivedSources.make	removed	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	line=1173; commit=7313e9de4b1d
@@ -2560,6 +2572,7 @@ maintenance	build_ref	editing/DictionaryPopupInfo.h	Source/WebCore/Headers.cmake
 maintenance	build_ref	page/Quirks.h	Source/WebCore/Headers.cmake	removed	source	16a2f73aefdceb29020676e52e628cd44e05c3d9	line=884; commit=16a2f73aefdc
 maintenance	build_ref	rendering/RenderModel.h	Source/WebCore/Headers.cmake	removed	source	b36f2859868097eca7e07592dd45509afd21cbc3	line=1470; commit=b36f28598680
 maintenance	file	-	Source/WebCore/Modules/indexeddb/server/IDBServer.cpp	modified	source	ab1e002a11c425f23880a6c1a715b612de6dbfdc	origin=ab1e002a11c425f23880a6c1a715b612de6dbfdc :bug: Fix for IndexedDB Origin Leak
+maintenance	file	-	Source/WebCore/Scripts/check-xcfilelists.sh	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
 maintenance	build_ref	JSAddressErrors.cpp	Source/WebCore/Sources.txt	removed	source	04ee52f8933f0d428b52fe6f21052ff86795b5d7	line=2664; commit=04ee52f8933f
 maintenance	build_ref	JSDoubleRange.cpp	Source/WebCore/Sources.txt	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=2709; commit=b5f9982ac10e
 maintenance	build_ref	JSLongRange.cpp	Source/WebCore/Sources.txt	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=2899; commit=b5f9982ac10e
@@ -2594,6 +2607,7 @@ maintenance	build_ref	bridge/objc/objc_runtime.mm @no-unify	Source/WebCore/Sourc
 maintenance	build_ref	bridge/objc/objc_utility.mm @no-unify	Source/WebCore/SourcesCocoa.txt	removed	source	82d0b2e14fcac3b505e686aaa360dd27963d725e	line=48; commit=82d0b2e14fca
 maintenance	build_ref	editing/cocoa/DictionaryLookup.mm	Source/WebCore/SourcesCocoa.txt	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=70; commit=8fcc1f032fa8
 maintenance	build_ref	editing/mac/DictionaryLookupLegacy.mm	Source/WebCore/SourcesCocoa.txt	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=81; commit=8fcc1f032fa8
+maintenance	file	-	Source/WebCore/UnifiedSources-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
 maintenance	file	-	Source/WebCore/dom/Document+HTML.idl	modified	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	origin=7313e9de4b1d22aa40e9314d91282fd35ac51a45 :bug: Fixes for DerivedSources and missing HTML Tags
 maintenance	idl_attribute	Document::embeds	Source/WebCore/dom/Document+HTML.idl	removed	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	line=47
 maintenance	idl_attribute	Document::plugins	Source/WebCore/dom/Document+HTML.idl	removed	source	7313e9de4b1d22aa40e9314d91282fd35ac51a45	line=48
@@ -2641,7 +2655,13 @@ maintenance	file	-	Source/WebCore/worklets/Worklet.h	modified	source	b5f9982ac10
 maintenance	flag	"${WEBKIT_DIR}/Shared/XR"	Source/WebKit/CMakeLists.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=48; commit=a47326938941
 maintenance	flag	"${WEBKIT_DIR}/UIProcess/XR"	Source/WebKit/CMakeLists.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=70; commit=a47326938941
 maintenance	flag	"${WEBKIT_DIR}/WebProcess/XR"	Source/WebKit/CMakeLists.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=108; commit=a47326938941
+maintenance	file	-	Source/WebKit/DerivedSources-input.xcfilelist	removed	source	curated	Xcode-only file list; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKit/DerivedSources-output.xcfilelist	removed	source	curated	Xcode-only file list; GTK fork has no Xcode build
 maintenance	file	-	Source/WebKit/NetworkProcess/Classifier/WebResourceLoadStatisticsStore.h	modified	source	bcaba943c05516816189c104a0ae619aca12c91b	origin=bcaba943c05516816189c104a0ae619aca12c91b :bug: Fixes for NetworkProcess and UIProcess
+maintenance	file	-	Source/WebKit/Resources/cocoa/NotificationAllowList/NotificationAllowLists.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKit/Scripts/IPCTestingHeaders-input.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKit/Scripts/IPCTestingHeaders-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKit/Scripts/check-xcfilelists.sh	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
 maintenance	file	-	Source/WebKit/Shared/WebErrors.cpp	modified	source	a377b8b2808c3618528f65fedf927e11d5b29133	origin=a377b8b2808c3618528f65fedf927e11d5b29133 :bug: Fixes
 maintenance	function	WebKit::pluginWillHandleLoadError	Source/WebKit/Shared/WebErrors.cpp	removed	source	a377b8b2808c3618528f65fedf927e11d5b29133	line=82
 maintenance	file	-	Source/WebKit/Shared/WebErrors.h	modified	source	a377b8b2808c3618528f65fedf927e11d5b29133	origin=a377b8b2808c3618528f65fedf927e11d5b29133 :bug: Fixes
@@ -2665,6 +2685,7 @@ maintenance	config_line	DidPerformDictionaryLookup(struct WebCore::DictionaryPop
 maintenance	config_line	SearchTheWeb(String string)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=310; commit=8fcc1f032fa8
 maintenance	config_line	SearchWithSpotlight(String string)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=308; commit=8fcc1f032fa8
 maintenance	config_line	SetNeedsSiteSpecificViewportQuirks(bool value)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	16a2f73aefdceb29020676e52e628cd44e05c3d9	line=383; commit=16a2f73aefdc
+maintenance	file	-	Source/WebKit/UnifiedSources-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
 maintenance	file	-	Source/WebKit/WebProcess/GPU/media/RemoteMediaPlayerMIMETypeCache.cpp	modified	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	origin=b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b :bug: Fixes
 maintenance	file	-	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMElementGtk.cpp	modified	source	5905ddc070b2b5c237bab5dc9ebd10cd17d002a1	origin=5905ddc070b2b5c237bab5dc9ebd10cd17d002a1 :bug: Fixes
 maintenance	function	webkit_dom_element_webkit_request_fullscreen	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMElementGtk.cpp	removed	source	5905ddc070b2b5c237bab5dc9ebd10cd17d002a1	line=891
@@ -2674,6 +2695,11 @@ maintenance	file	-	Source/WebKit/WebProcess/WebPage/RemoteLayerTree/PlatformCALa
 maintenance	config_line	PerformDictionaryLookupAtLocation(WebCore::FloatPoint point)	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=229; commit=8fcc1f032fa8
 maintenance	config_line	PerformDictionaryLookupOfCurrentSelection()	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=228; commit=8fcc1f032fa8
 maintenance	file	-	Source/WebKit/config.h	modified	source	d691b7185681fbdb13473a77de30c0069e7a3f59	origin=d691b7185681fbdb13473a77de30c0069e7a3f59 :bug: Fixes
+maintenance	file	-	Source/WebKitLegacy/MigratedHeaders-input.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKitLegacy/MigratedHeaders-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKitLegacy/UnifiedSources-output.xcfilelist	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKitLegacy/scripts/check-xcfilelists.sh	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
+maintenance	file	-	Source/WebKitLegacy/scripts/xcfilelist-copy.py	removed	source	curated	Xcode-only metadata; GTK fork has no Xcode build
 maintenance	config_line	find_package(Manette 0.2.4)	Source/cmake/OptionsGTK.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=289; commit=cbd7373a3234
 maintenance	config_line	if (NOT Manette_FOUND)	Source/cmake/OptionsGTK.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=290; commit=cbd7373a3234
 maintenance	flag	SET_AND_EXPOSE_TO_BUILD(USE_MANETTE TRUE)	Source/cmake/OptionsGTK.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=293; commit=cbd7373a3234

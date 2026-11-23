@@ -1,4 +1,0 @@
-$(PROJECT_DIR)/Resources/cocoa/NotificationAllowList/EmbeddedForwardedNotifications.def
-$(PROJECT_DIR)/Resources/cocoa/NotificationAllowList/MacForwardedNotifications.def
-$(PROJECT_DIR)/Resources/cocoa/NotificationAllowList/ForwardedNotifications.def
-$(PROJECT_DIR)/Resources/cocoa/NotificationAllowList/NonForwardedNotifications.def
