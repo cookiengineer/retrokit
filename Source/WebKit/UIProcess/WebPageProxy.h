@@ -31,7 +31,6 @@
 #include "MessageReceiver.h"
 #include "TextExtractionAssertionScope.h"
 #include <WebCore/UserGestureTokenIdentifier.h>
-#include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
 #include <wtf/ApproximateTime.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/CompletionHandler.h>
@@ -148,8 +147,6 @@ class IntSize;
 class LayoutPoint;
 class LayoutSize;
 class NotificationResources;
-class PlatformSpeechSynthesisUtterance;
-class PlatformSpeechSynthesizer;
 class PrivateClickMeasurement;
 class PublicSuffix;
 class Region;
@@ -168,7 +165,6 @@ class SharedBuffer;
 class SharedMemory;
 class SharedMemoryHandle;
 class SleepDisabler;
-class SpeechRecognitionRequest;
 class SubstituteData;
 class TextCheckingRequestData;
 class TextIndicator;
@@ -344,7 +340,6 @@ struct ScrollingNodeIDType;
 struct SerializedAttachmentData;
 struct ShareDataWithParsedURL;
 struct SleepDisablerIdentifierType;
-struct SpeechRecognitionError;
 struct SnapshotIdentifierType;
 struct SystemPreviewInfo;
 struct TargetedElementRequest;
@@ -540,7 +535,6 @@ class RevealItem;
 class SandboxExtensionHandle;
 class SecKeyProxyStore;
 class SessionHistoryTraversalQueue;
-class SpeechRecognitionPermissionManager;
 class SuspendedPageProxy;
 class SystemPreviewController;
 class TextExtractionAssertionScope;
@@ -659,7 +653,6 @@ struct WebPageCreationParameters;
 struct WebPageProxyIdentifierType;
 struct WebPopupItem;
 struct WebPreferencesStore;
-struct WebSpeechSynthesisVoice;
 struct WebURLSchemeHandlerIdentifierType;
 struct WebUndoStepIDType;
 struct WebsitePoliciesData;
@@ -732,7 +725,6 @@ using PDFPluginIdentifier = ObjectIdentifier<PDFPluginIdentifierType>;
 using PlaybackSessionContextIdentifier = WebCore::ProcessQualified<WebCore::HTMLMediaElementIdentifier>;
 using RemoteSnapshotIdentifier = AtomicObjectIdentifier<RemoteSnapshotIdentifierType>;
 using SnapshotOptions = OptionSet<SnapshotOption>;
-using SpeechRecognitionPermissionRequestCallback = CompletionHandler<void(std::optional<WebCore::SpeechRecognitionError>&&)>;
 using SpellDocumentTag = int64_t;
 using TapIdentifier = ObjectIdentifier<TapIdentifierType>;
 using TextCheckerRequestID = ObjectIdentifier<TextCheckerRequestType>;
@@ -2346,16 +2338,6 @@ public:
     void contentFilterDidBlockLoadForFrameShared(IPC::Connection&, const WebCore::ContentFilterUnblockHandler&, WebCore::FrameIdentifier);
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    void speechSynthesisVoiceList(CompletionHandler<void(Vector<WebSpeechSynthesisVoice>&&)>&&);
-    void speechSynthesisSpeak(const String&, const String&, float volume, float rate, float pitch, MonotonicTime startTime, const String& voiceURI, const String& voiceName, const String& voiceLang, bool localService, bool defaultVoice, CompletionHandler<void()>&&);
-    void speechSynthesisSetFinishedCallback(CompletionHandler<void()>&&);
-    void speechSynthesisCancel();
-    void speechSynthesisPause(CompletionHandler<void()>&&);
-    void speechSynthesisResume(CompletionHandler<void()>&&);
-    void speechSynthesisResetState();
-#endif
-
     void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel);
 
     void addDidMoveToWindowObserver(WebViewDidMoveToWindowObserver&);
@@ -2525,9 +2507,6 @@ public:
     void setMediaCaptureReportingDelay(Seconds captureReportingDelay) { m_mediaCaptureReportingDelay = captureReportingDelay; }
     size_t suspendMediaPlaybackCounter() { return m_suspendMediaPlaybackCounter; }
 
-    void requestSpeechRecognitionPermission(WebCore::SpeechRecognitionRequest&, FrameInfoData&&, SpeechRecognitionPermissionRequestCallback&&);
-    void requestSpeechRecognitionPermissionByDefaultAction(const WebCore::SecurityOriginData&, CompletionHandler<void(bool)>&&);
-    void requestUserMediaPermissionForSpeechRecognition(WebCore::FrameIdentifier mainFrameIdentifier, FrameInfoData&&, const WebCore::SecurityOrigin&, const WebCore::SecurityOrigin&, CompletionHandler<void(bool)>&&);
 
     void requestMediaKeySystemPermissionByDefaultAction(const WebCore::SecurityOriginData&, CompletionHandler<void(bool)>&&);
 
@@ -3504,10 +3483,6 @@ private:
     void resetPaymentCoordinator(ResetStateReason);
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    void resetSpeechSynthesizer();
-#endif
-
     void didFinishServiceWorkerPageRegistration(bool success);
     void callLoadCompletionHandlersIfNecessary(bool success);
 
@@ -3645,8 +3620,6 @@ private:
 
     void takeTextExtractionAssertion();
     void dropTextExtractionAssertion();
-
-    SpeechRecognitionPermissionManager* speechRecognitionPermissionManager() const { return m_speechRecognitionPermissionManager; }
 
 #if PLATFORM(COCOA)
     String presentingApplicationBundleIdentifier() const;
@@ -4116,7 +4089,6 @@ private:
 
     mutable RefPtr<Logger> m_logger;
 
-    RefPtr<SpeechRecognitionPermissionManager> m_speechRecognitionPermissionManager;
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
     RefPtr<RemoteMediaSessionCoordinatorProxy> m_mediaSessionCoordinatorProxy;

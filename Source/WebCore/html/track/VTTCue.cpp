@@ -50,7 +50,6 @@
 #include "NodeTraversal.h"
 #include "RenderVTTCue.h"
 #include "ScriptDisallowedScope.h"
-#include "SpeechSynthesis.h"
 #include "Text.h"
 #include "TextTrack.h"
 #include "TextTrackCueGeneric.h"
@@ -1400,104 +1399,6 @@ void VTTCue::toJSON(JSON::Object& object) const
         object.setString("position"_s, autoAtom());
     object.setInteger("size"_s, m_cueSize);
     object.setString("align"_s, convertEnumerationToString(align()));
-}
-
-#if ENABLE(SPEECH_SYNTHESIS)
-static float NODELETE mapVideoRateToSpeechRate(float rate)
-{
-    // WebSpeech says to go from .1 -> 10 (default 1)
-    // Video rate is 0 -> 2 (default 1). [The spec has no maximum rate, but the default controls only go to 2x, so use that]
-    // 1 -> (1 + (0 * 9)) => 1
-    // 2 -> (1 + (1 * 9)) => 10
-    if (rate > 1)
-        rate = 1.0 + ((rate - 1.0) * (10 - 1));
-
-    return rate;
-}
-#endif
-
-void VTTCue::prepareToSpeak(SpeechSynthesis& speechSynthesis, double rate, double volume, SpeakCueCompletionHandler&& completion)
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    ASSERT(!m_speechSynthesis);
-    ASSERT(!m_speechUtterance);
-    ASSERT(rate);
-    ASSERT(track());
-    if (m_content.isEmpty() || !track()) {
-        completion(*this);
-        return;
-    }
-
-    Ref track = *this->track();
-    m_speechSynthesis = speechSynthesis;
-    m_speechUtterance = SpeechSynthesisUtterance::create(Ref { *track->scriptExecutionContext() }, m_content, [protectedThis = Ref { *this }, completion = WTF::move(completion)](const SpeechSynthesisUtterance&) {
-        protectedThis->m_speechUtterance = nullptr;
-        protectedThis->m_speechSynthesis = nullptr;
-        completion(protectedThis.get());
-    });
-
-    auto trackLanguage = track->validBCP47Language();
-    if (trackLanguage.isEmpty())
-        trackLanguage = track->language();
-
-    Ref speechUtterance = *m_speechUtterance;
-    speechUtterance->setLang(trackLanguage);
-    speechUtterance->setVolume(volume);
-    speechUtterance->setRate(mapVideoRateToSpeechRate(rate));
-#else
-    UNUSED_PARAM(speechSynthesis);
-    UNUSED_PARAM(rate);
-    UNUSED_PARAM(volume);
-    UNUSED_PARAM(completion);
-#endif
-}
-
-#if !RELEASE_LOG_DISABLED
-uint64_t VTTCue::logIdentifier() const
-{
-    if (!m_logIdentifier && track())
-        m_logIdentifier = childLogIdentifier(protect(track())->logIdentifier(), cryptographicallyRandomNumber<uint64_t>());
-    return m_logIdentifier;
-}
-
-WTFLogChannel& VTTCue::logChannel() const
-{
-    return LogMedia;
-}
-#endif // !RELEASE_LOG_DISABLED
-
-void VTTCue::beginSpeaking()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    ASSERT(m_speechUtterance);
-
-    Ref speechSynthesis = *m_speechSynthesis;
-    if (speechSynthesis->paused())
-        speechSynthesis->resume();
-    else
-        speechSynthesis->speak(Ref { *m_speechUtterance }.get());
-#endif
-}
-
-void VTTCue::pauseSpeaking()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (RefPtr speechSynthesis = m_speechSynthesis)
-        speechSynthesis->pause();
-#endif
-}
-
-void VTTCue::cancelSpeaking()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    RefPtr speechSynthesis = m_speechSynthesis;
-    if (!speechSynthesis)
-        return;
-
-    speechSynthesis->cancel();
-    m_speechSynthesis = nullptr;
-    m_speechUtterance = nullptr;
-#endif
 }
 
 } // namespace WebCore

@@ -239,7 +239,6 @@
 #define WebKitMediaRecorderEnabledPreferenceKey @"WebKitMediaRecorderEnabled"
 #define WebKitContactPickerAPIEnabledPreferenceKey @"WebKitContactPickerAPIEnabled"
 #define WebKitDigitalCredentialsEnabledPreferenceKey @"WebKitDigitalCredentialsPickerEnabled"
-#define WebKitSpeechRecognitionEnabledPreferenceKey @"WebKitSpeechRecognitionEnabled"
 #define WebKitPitchCorrectionAlgorithmPreferenceKey @"WebKitPitchCorrectionAlgorithm"
 
 // The preference keys below this point are deprecated and have no effect. They should

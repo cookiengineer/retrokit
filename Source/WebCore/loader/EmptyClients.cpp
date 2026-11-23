@@ -49,7 +49,6 @@
 #include "DocumentSyncClient.h"
 #include "DragClient.h"
 #include "DummyModelPlayerProvider.h"
-#include "DummySpeechRecognitionProvider.h"
 #include "DummyStorageProvider.h"
 #include "EditorClient.h"
 #include "EmptyAttachmentElementClient.h"
@@ -1277,7 +1276,6 @@ PageConfiguration pageConfigurationWithEmptyClients(std::optional<PageIdentifier
         },
         generateFrameIdentifier(),
         nullptr,
-        makeUniqueRef<DummySpeechRecognitionProvider>(),
         EmptyBroadcastChannelRegistry::create(),
         makeUniqueRef<DummyStorageProvider>(),
         DummyModelPlayerProvider::create(),

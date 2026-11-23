@@ -173,7 +173,6 @@ typedef NS_ENUM(NSInteger, _WKNavigatorWebDriverActivePolicy) {
 @property (nonatomic, setter=_setAcceleratedCompositingEnabled:) BOOL _acceleratedCompositingEnabled WK_API_AVAILABLE(macos(10.13.4), ios(13.4));
 @property (nonatomic, setter=_setServiceWorkerEntitlementDisabledForTesting:) BOOL _serviceWorkerEntitlementDisabledForTesting WK_API_AVAILABLE(macos(11.0), ios(14.0));
 @property (nonatomic, setter=_setAccessibilityIsolatedTreeEnabled:) BOOL _accessibilityIsolatedTreeEnabled WK_API_AVAILABLE(macos(10.16));
-@property (nonatomic, setter=_setSpeechRecognitionEnabled:) BOOL _speechRecognitionEnabled WK_API_AVAILABLE(macos(12.0), ios(15.0));
 @property (nonatomic, setter=_setPrivateClickMeasurementEnabled:) BOOL _privateClickMeasurementEnabled WK_API_AVAILABLE(macos(12.0), ios(15.0));
 @property (nonatomic, setter=_setPrivateClickMeasurementDebugModeEnabled:) BOOL _privateClickMeasurementDebugModeEnabled WK_API_AVAILABLE(macos(14.0), ios(17.0));
 @property (nonatomic, setter=_setPitchCorrectionAlgorithm:) _WKPitchCorrectionAlgorithm _pitchCorrectionAlgorithm WK_API_AVAILABLE(macos(12.0), ios(15.0));

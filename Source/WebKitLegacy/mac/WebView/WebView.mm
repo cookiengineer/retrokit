@@ -158,7 +158,6 @@
 #import <WebCore/DragItem.h>
 #import <WebCore/DummyCredentialRequestCoordinatorClient.h>
 #import <WebCore/DummyModelPlayerProvider.h>
-#import <WebCore/DummySpeechRecognitionProvider.h>
 #import <WebCore/DummyStorageProvider.h>
 #import <WebCore/Editing.h>
 #import <WebCore/Editor.h>
@@ -1189,7 +1188,6 @@ static bool didOneTimeInitialization = false;
         },
         WebCore::generateFrameIdentifier(),
         nullptr, // Opener may be set by setOpenerForWebKitLegacy after instantiation.
-        makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         WebBroadcastChannelRegistry::getOrCreate([[self preferences] privateBrowsingEnabled]),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
@@ -1449,7 +1447,6 @@ static bool didOneTimeInitialization = false;
         },
         WebCore::generateFrameIdentifier(),
         nullptr, // Opener may be set by setOpenerForWebKitLegacy after instantiation.
-        makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         WebBroadcastChannelRegistry::getOrCreate([[self preferences] privateBrowsingEnabled]),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),

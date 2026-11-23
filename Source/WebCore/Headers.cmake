@@ -615,20 +615,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/reporting/TestReportBody.h
     Modules/reporting/ViolationReportType.h
 
-    Modules/speech/SpeechRecognitionCaptureSource.h
-    Modules/speech/SpeechRecognitionCaptureSourceImpl.h
-    Modules/speech/SpeechRecognitionConnection.h
-    Modules/speech/SpeechRecognitionConnectionClient.h
-    Modules/speech/SpeechRecognitionConnectionClientIdentifier.h
-    Modules/speech/SpeechRecognitionError.h
-    Modules/speech/SpeechRecognitionRequest.h
-    Modules/speech/SpeechRecognitionRequestInfo.h
-    Modules/speech/SpeechRecognitionResultData.h
-    Modules/speech/SpeechRecognitionUpdate.h
-    Modules/speech/SpeechRecognizer.h
-    Modules/speech/SpeechSynthesisErrorCode.h
-    Modules/speech/SpeechSynthesisUtterance.h
-    Modules/speech/SpeechSynthesisVoice.h
 
     Modules/storage/DummyStorageProvider.h
     Modules/storage/StorageConnection.h
@@ -1926,7 +1912,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/DragActions.h
     page/DragClient.h
     page/DragController.h
-    page/DummySpeechRecognitionProvider.h
     page/EditorClient.h
     page/ElementTargetingController.h
     page/ElementTargetingTypes.h
@@ -2018,8 +2003,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/ShadowRealmGlobalScope.h
     page/ShareData.h
     page/SocketProvider.h
-    page/SpeechRecognitionProvider.h
-    page/SpeechSynthesisClient.h
     page/StageModeOperations.h
     page/StorageBlockingPolicy.h
     page/StructuredSerializeOptions.h
@@ -2203,9 +2186,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/PlatformMouseEvent.h
     platform/PlatformPasteboard.h
     platform/PlatformScreen.h
-    platform/PlatformSpeechSynthesisUtterance.h
-    platform/PlatformSpeechSynthesisVoice.h
-    platform/PlatformSpeechSynthesizer.h
     platform/PlatformStrategies.h
     platform/PlatformTouchEvent.h
     platform/PlatformTouchPoint.h

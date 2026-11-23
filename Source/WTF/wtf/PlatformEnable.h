@@ -515,9 +515,6 @@
 #define ENABLE_SPATIAL_PORTAL 0
 #endif
 
-#if !defined(ENABLE_SPEECH_SYNTHESIS)
-#define ENABLE_SPEECH_SYNTHESIS 0
-#endif
 
 #if !defined(ENABLE_SPELLCHECK)
 #define ENABLE_SPELLCHECK 0

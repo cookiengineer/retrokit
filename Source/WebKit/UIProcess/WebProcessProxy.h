@@ -40,7 +40,6 @@
 #include "ResponsivenessTimer.h"
 #include "ScopedActiveMessageReceiveQueue.h"
 #include "SharedPreferencesForWebProcess.h"
-#include "SpeechRecognitionServer.h"
 #include "UserContentControllerIdentifier.h"
 #include "VisibleWebPageCounter.h"
 #include "WebPageProxyIdentifier.h"
@@ -524,7 +523,6 @@ public:
     void setAllowTestOnlyIPC(bool allowTestOnlyIPC) { m_allowTestOnlyIPC = allowTestOnlyIPC; }
 
     void pageMutedStateChanged(WebCore::PageIdentifier, WebCore::MediaProducerMutedStateFlags);
-    void pageIsBecomingInvisible(WebCore::PageIdentifier);
 
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     static bool shouldEnableRemoteInspector();
@@ -744,9 +742,6 @@ private:
     void sendMessageToWebContextWithReply(UserMessage&&, CompletionHandler<void(UserMessage&&)>&&);
 #endif
 
-    void createSpeechRecognitionServer(SpeechRecognitionServerIdentifier);
-    void destroySpeechRecognitionServer(SpeechRecognitionServerIdentifier);
-
     void systemBeep();
     
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
@@ -915,8 +910,6 @@ private:
     
     bool m_allowTestOnlyIPC { false };
 
-    using SpeechRecognitionServerMap = HashMap<SpeechRecognitionServerIdentifier, Ref<SpeechRecognitionServer>>;
-    SpeechRecognitionServerMap m_speechRecognitionServerMap;
     const std::unique_ptr<WebLockRegistryProxy> m_webLockRegistry;
     const UniqueRef<WebPermissionControllerProxy> m_webPermissionController;
 #if ENABLE(ROUTING_ARBITRATION)

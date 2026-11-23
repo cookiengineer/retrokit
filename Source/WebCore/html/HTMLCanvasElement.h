@@ -120,6 +120,11 @@ public:
     void clearCopiedImage() const final;
     RefPtr<ImageData> getImageData();
 
+#if ENABLE(WEB_CODECS)
+    // Returns the context drawing buffer as a VideoFrame (WebCodecs canvas source).
+    RefPtr<VideoFrame> toVideoFrame();
+#endif
+
     SecurityOrigin* securityOrigin() const final;
 
     bool needsPreparationForDisplay();

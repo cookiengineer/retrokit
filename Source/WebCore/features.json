@@ -1085,16 +1085,6 @@
         "description": "An API to allow content from the page to be exposed to platform sharing APIs."
     },
     {
-        "name": "Web Speech",
-        "status": {
-            "status": "Supported"
-        },
-        "url": "https://wicg.github.io/speech-api/",
-        "webkit-url": "https://bugs.webkit.org/show_bug.cgi?id=237614",
-        "keywords": ["accessibility", "speech"],
-        "description": "An API to to enable web developers to incorporate speech recognition and synthesis into their web pages."
-    },
-    {
         "name": "WebGL 1",
         "status": {
             "status": "Supported"

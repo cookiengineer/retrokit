@@ -172,9 +172,6 @@ class ServicesOverlayController;
 class ServiceWorkerGlobalScope;
 class Settings;
 class SocketProvider;
-class SpeechRecognitionProvider;
-class SpeechSynthesisClient;
-class SpeechRecognitionConnection;
 class StorageConnection;
 class StorageNamespace;
 class StorageNamespaceProvider;
@@ -1086,11 +1083,7 @@ public:
     std::optional<CompositingPolicy> compositingPolicyOverride() const { return m_compositingPolicyOverride; }
     void setCompositingPolicyOverride(std::optional<CompositingPolicy> policy) { m_compositingPolicyOverride = policy; }
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    SpeechSynthesisClient* speechSynthesisClient() const { return m_speechSynthesisClient.get(); }
-#endif
 
-    WEBCORE_EXPORT SpeechRecognitionConnection& speechRecognitionConnection();
 
     bool NODELETE isOnlyNonUtilityPage() const;
     bool isUtilityPage() const { return m_isUtilityPage; }
@@ -1478,11 +1471,6 @@ private:
     std::unique_ptr<DiagnosticLoggingClient> m_diagnosticLoggingClient;
     std::unique_ptr<PerformanceLoggingClient> m_performanceLoggingClient;
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    const RefPtr<SpeechSynthesisClient> m_speechSynthesisClient;
-#endif
-
-    const UniqueRef<SpeechRecognitionProvider> m_speechRecognitionProvider;
 
 
     PlatformDisplayID m_displayID { 0 };

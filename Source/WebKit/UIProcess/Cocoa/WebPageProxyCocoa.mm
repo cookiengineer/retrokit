@@ -724,51 +724,6 @@ void WebPageProxy::Internals::paymentCoordinatorRemoveMessageReceiver(WebPayment
 
 #endif // ENABLE(APPLE_PAY)
 
-#if ENABLE(SPEECH_SYNTHESIS)
-
-void WebPageProxy::Internals::didStartSpeaking(WebCore::PlatformSpeechSynthesisUtterance&)
-{
-    if (speechSynthesisData().speakingStartedCompletionHandler)
-        speechSynthesisData().speakingStartedCompletionHandler();
-}
-
-void WebPageProxy::Internals::didFinishSpeaking(WebCore::PlatformSpeechSynthesisUtterance&)
-{
-    if (speechSynthesisData().speakingFinishedCompletionHandler)
-        speechSynthesisData().speakingFinishedCompletionHandler();
-}
-
-void WebPageProxy::Internals::didPauseSpeaking(WebCore::PlatformSpeechSynthesisUtterance&)
-{
-    if (speechSynthesisData().speakingPausedCompletionHandler)
-        speechSynthesisData().speakingPausedCompletionHandler();
-}
-
-void WebPageProxy::Internals::didResumeSpeaking(WebCore::PlatformSpeechSynthesisUtterance&)
-{
-    if (speechSynthesisData().speakingResumedCompletionHandler)
-        speechSynthesisData().speakingResumedCompletionHandler();
-}
-
-void WebPageProxy::Internals::speakingErrorOccurred(WebCore::PlatformSpeechSynthesisUtterance&)
-{
-    Ref protectedPage = page.get();
-    protect(protectedPage->legacyMainFrameProcess())->send(Messages::WebPage::SpeakingErrorOccurred(), protectedPage->webPageIDInMainFrameProcess());
-}
-
-void WebPageProxy::Internals::boundaryEventOccurred(WebCore::PlatformSpeechSynthesisUtterance&, WebCore::SpeechBoundary speechBoundary, unsigned charIndex, unsigned charLength)
-{
-    Ref protectedPage = page.get();
-    protect(protectedPage->legacyMainFrameProcess())->send(Messages::WebPage::BoundaryEventOccurred(speechBoundary == WebCore::SpeechBoundary::SpeechWordBoundary, charIndex, charLength), protectedPage->webPageIDInMainFrameProcess());
-}
-
-void WebPageProxy::Internals::voicesDidChange()
-{
-    Ref protectedPage = page.get();
-    protect(protectedPage->legacyMainFrameProcess())->send(Messages::WebPage::VoicesDidChange(), protectedPage->webPageIDInMainFrameProcess());
-}
-
-#endif // ENABLE(SPEECH_SYNTHESIS)
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
 void WebPageProxy::didCreateContextInWebProcessForVisibilityPropagation(LayerHostingContextID contextID)

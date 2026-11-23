@@ -742,12 +742,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
 
     UpdateCurrentModifierState(OptionSet<WebCore::PlatformEventModifier> modifiers)
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    SpeakingErrorOccurred()
-    BoundaryEventOccurred(bool wordBoundary, unsigned charIndex, unsigned charLength)
-    VoicesDidChange()
-#endif
-
     SetCanShowPlaceholder(struct WebCore::ElementContext context, bool canShowPlaceholder)
 
     WasLoadedWithDataTransferFromPrevalentResource()

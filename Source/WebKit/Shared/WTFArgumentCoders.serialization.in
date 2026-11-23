@@ -81,7 +81,6 @@ template: enum class WebCore::MediaUniqueIdentifierType
 template: struct WebCore::RealtimeMediaSourceIdentifierType
 template: enum class WebCore::SWServerToContextConnectionIdentifierType
 template: struct WebCore::SharedWorkerIdentifierType
-template: struct WebCore::SpeechRecognitionConnectionClientIdentifierType
 template: enum class WebCore::TextCheckingRequestIdentifierType
 template: enum class WebCore::TextManipulationItemIdentifierType
 template: enum class WebCore::TextManipulationTokenIdentifierType

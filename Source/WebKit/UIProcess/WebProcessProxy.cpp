@@ -51,10 +51,6 @@
 #include "RemoteWorkerType.h"
 #include "ServiceWorkerNotificationHandler.h"
 #include "SessionState.h"
-#include "SpeechRecognitionPermissionRequest.h"
-#include "SpeechRecognitionRemoteRealtimeMediaSourceManager.h"
-#include "SpeechRecognitionRemoteRealtimeMediaSourceManagerMessages.h"
-#include "SpeechRecognitionServerMessages.h"
 #include "SuspendedPageProxy.h"
 #include "TextChecker.h"
 #include "TextCheckerState.h"
@@ -376,8 +372,6 @@ WebProcessProxy::~WebProcessProxy()
 
     liveProcessesLRU().remove(*this);
 
-    for (auto identifier : m_speechRecognitionServerMap.keys())
-        removeMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier);
 
 
     if (auto completionHandler = std::exchange(m_sharedPreferencesForWebProcessCompletionHandler, { }))
@@ -2679,72 +2673,8 @@ PAL::SessionID WebProcessProxy::sessionID() const
     return m_websiteDataStore->sessionID();
 }
 
-void WebProcessProxy::createSpeechRecognitionServer(SpeechRecognitionServerIdentifier identifier)
-{
-    RefPtr<WebPageProxy> targetPage;
-    for (Ref page : pages()) {
-        if (page->webPageIDInMainFrameProcess() == identifier) {
-            targetPage = WTF::move(page);
-            break;
-        }
-    }
-
-    if (!targetPage)
-        return;
-
-    ASSERT(!m_speechRecognitionServerMap.contains(identifier));
-    MESSAGE_CHECK(!m_speechRecognitionServerMap.contains(identifier));
-
-    auto permissionChecker = [weakPage = WeakPtr { targetPage }](auto& request, FrameInfoData&& frameInfo, SpeechRecognitionPermissionRequestCallback&& completionHandler) mutable {
-        RefPtr page = weakPage.get();
-        if (!page) {
-            completionHandler(WebCore::SpeechRecognitionError { SpeechRecognitionErrorType::NotAllowed, "Page no longer exists"_s });
-            return;
-        }
-
-        page->requestSpeechRecognitionPermission(request, WTF::move(frameInfo), WTF::move(completionHandler));
-    };
-    auto checkIfMockCaptureDevicesEnabled = []() {
-        return false;
-    };
-
-    m_speechRecognitionServerMap.ensure(identifier, [&]() {
-#if ENABLE(MEDIA_STREAM)
-        auto createRealtimeMediaSource = [weakPage = WeakPtr { targetPage }](WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier) {
-            return weakPage ? weakPage->createRealtimeMediaSourceForSpeechRecognition(clientIdentifier) : CaptureSourceOrError { { "Page is invalid"_s, WebCore::MediaAccessDenialReason::InvalidAccess } };
-        };
-        Ref speechRecognitionServer = SpeechRecognitionServer::create(*this, identifier, WTF::move(permissionChecker), WTF::move(checkIfMockCaptureDevicesEnabled), WTF::move(createRealtimeMediaSource));
-#else
-        Ref speechRecognitionServer = SpeechRecognitionServer::create(*this, identifier, WTF::move(permissionChecker), WTF::move(checkIfMockCaptureDevicesEnabled));
-#endif
-        addMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier, speechRecognitionServer);
-        return speechRecognitionServer;
-    });
-
-}
-
-void WebProcessProxy::destroySpeechRecognitionServer(SpeechRecognitionServerIdentifier identifier)
-{
-    if (RefPtr server = m_speechRecognitionServerMap.take(identifier))
-        removeMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier);
-}
-
-
 void WebProcessProxy::pageMutedStateChanged(WebCore::PageIdentifier identifier, WebCore::MediaProducerMutedStateFlags flags)
 {
-    bool mutedForCapture = flags.containsAny(MediaProducer::AudioAndVideoCaptureIsMuted);
-    if (!mutedForCapture)
-        return;
-
-    if (RefPtr speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
-        speechRecognitionServer->mute();
-}
-
-void WebProcessProxy::pageIsBecomingInvisible(WebCore::PageIdentifier identifier)
-{
-
-    if (RefPtr speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
-        speechRecognitionServer->mute();
 }
 
 #if PLATFORM(WATCHOS)

@@ -79,10 +79,6 @@ RTCDTMFToneChangeEvent conditional=WEB_RTC
 RTCRtpSFrameTransformErrorEvent conditional=WEB_RTC
 RTCTrackEvent conditional=WEB_RTC
 RTCTransformEvent conditional=WEB_RTC
-SpeechRecognitionErrorEvent
-SpeechRecognitionEvent
-SpeechSynthesisErrorEvent conditional=SPEECH_SYNTHESIS
-SpeechSynthesisEvent conditional=SPEECH_SYNTHESIS
 WebGLContextEvent conditional=WEBGL
 StorageEvent
 SVGEvents interfaceName=Event

@@ -76,11 +76,6 @@
 #include <WebCore/ViewportArguments.h>
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-#include <WebCore/PlatformSpeechSynthesisUtterance.h>
-#include <WebCore/PlatformSpeechSynthesizer.h>
-#endif
-
 #if ENABLE(TOUCH_EVENTS)
 #include "NativeWebTouchEvent.h"
 #include <WebCore/EventTrackingRegions.h>
@@ -117,18 +112,6 @@ struct PrivateClickMeasurementAndMetadata {
     String sourceDescription;
     String purchaser;
 };
-
-#if ENABLE(SPEECH_SYNTHESIS)
-struct SpeechSynthesisData {
-    Ref<WebCore::PlatformSpeechSynthesizer> synthesizer;
-    RefPtr<WebCore::PlatformSpeechSynthesisUtterance> utterance;
-    CompletionHandler<void()> speakingStartedCompletionHandler;
-    CompletionHandler<void()> speakingFinishedCompletionHandler;
-    CompletionHandler<void()> speakingPausedCompletionHandler;
-    CompletionHandler<void()> speakingResumedCompletionHandler;
-
-};
-#endif
 
 #if ENABLE(TOUCH_EVENTS)
 
@@ -173,9 +156,6 @@ struct WebPageProxy::Internals final : WebPopupMenuProxy::Client
     , WebColorPickerClient
 #if PLATFORM(MACCATALYST)
     , EndowmentStateTrackerClient
-#endif
-#if ENABLE(SPEECH_SYNTHESIS)
-    , WebCore::PlatformSpeechSynthesizerClient
 #endif
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
     , WebCore::WebMediaSessionManagerClient
@@ -340,10 +320,6 @@ public:
 
     CompletionHandler<void(bool)> serviceWorkerLaunchCompletionHandler;
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    std::optional<SpeechSynthesisData> optionalSpeechSynthesisData;
-#endif
-
 #if ENABLE(TOUCH_EVENTS)
     TouchEventTracking touchEventTracking;
 #endif
@@ -415,10 +391,6 @@ public:
 
     explicit Internals(WebPageProxy&, bool processInheritedFromOpener);
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    SpeechSynthesisData& speechSynthesisData() LIFETIME_BOUND;
-#endif
-
     // WebPopupMenuProxy::Client
 #if !PLATFORM(IOS_FAMILY)
     void valueChangedForPopupMenu(WebPopupMenuProxy*, int32_t newSelectedIndex) final;
@@ -462,19 +434,6 @@ public:
 #if PLATFORM(MACCATALYST)
     // EndowmentStateTrackerClient
     void isUserFacingChanged(bool) final;
-#endif
-
-#if ENABLE(SPEECH_SYNTHESIS)
-    // PlatformSpeechSynthesisUtteranceClient
-    void didStartSpeaking(WebCore::PlatformSpeechSynthesisUtterance&) final;
-    void didFinishSpeaking(WebCore::PlatformSpeechSynthesisUtterance&) final;
-    void didPauseSpeaking(WebCore::PlatformSpeechSynthesisUtterance&) final;
-    void didResumeSpeaking(WebCore::PlatformSpeechSynthesisUtterance&) final;
-    void speakingErrorOccurred(WebCore::PlatformSpeechSynthesisUtterance&) final;
-    void boundaryEventOccurred(WebCore::PlatformSpeechSynthesisUtterance&, WebCore::SpeechBoundary, unsigned characterIndex, unsigned characterLength) final;
-
-    // PlatformSpeechSynthesizerClient
-    void voicesDidChange() final;
 #endif
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)

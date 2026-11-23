@@ -82,9 +82,6 @@ SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSampleBufferAudioRenderer)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSampleBufferDisplayLayer)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSampleBufferVideoRenderer)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSampleBufferRenderSynchronizer)
-SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSpeechSynthesisVoice)
-SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSpeechSynthesizer)
-SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSpeechUtterance)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVStreamDataParser)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVURLAsset)
 
@@ -442,8 +439,6 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVAudioSessionSpatialPlaybackCa
 #define AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification PAL::get_AVFoundation_AVAudioSessionSpatialPlaybackCapabilitiesChangedNotificationSingleton()
 
 #if HAVE(AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVSpeechSynthesisAvailableVoicesDidChangeNotification, NSString *)
-#define AVSpeechSynthesisAvailableVoicesDidChangeNotification PAL::get_AVFoundation_AVSpeechSynthesisAvailableVoicesDidChangeNotificationSingleton()
 #endif // HAVE(AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION)
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVCaptureMaxAvailableTorchLevel, float)

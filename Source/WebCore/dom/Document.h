@@ -245,7 +245,6 @@ class SleepDisabler;
 class SpaceSplitString;
 class SpeculationRules;
 class LoadableSpeculationRules;
-class SpeechRecognition;
 class StorageConnection;
 class StringCallback;
 class StyleOriginatedTimelinesController;
@@ -1688,7 +1687,6 @@ public:
 
     WEBCORE_EXPORT void addAudioProducer(MediaProducer&);
     WEBCORE_EXPORT void removeAudioProducer(MediaProducer&);
-    void setActiveSpeechRecognition(SpeechRecognition*);
     MediaProducerMediaStateFlags mediaState() const { return m_mediaState; }
     void noteUserInteractionWithMediaElement();
     bool NODELETE isCapturing() const;
@@ -2521,7 +2519,6 @@ private:
     const std::unique_ptr<DocumentFontLoader> m_fontLoader;
 
     WeakHashSet<MediaProducer> m_audioProducers;
-    WeakPtr<SpeechRecognition> m_activeSpeechRecognition;
 
     WeakListHashSet<ShadowRoot, WeakPtrImplWithEventTargetData> m_inDocumentShadowRoots;
 

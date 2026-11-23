@@ -964,7 +964,6 @@ SecItemShimProxyMessageReceiver.cpp
 SerializedTypeInfo.mm @nonARC @cost:14
 ServiceWorkerFetchTaskMessageReceiver.cpp
 SmartMagnificationControllerMessageReceiver.cpp
-SpeechRecognitionServerMessageReceiver.cpp @cost:10
 StorageAreaMapMessageReceiver.cpp
 TextCheckingControllerProxyMessageReceiver.cpp
 VideoPresentationManagerMessageReceiver.cpp @cost:3
@@ -1008,7 +1007,6 @@ WebProcessPoolMessageReceiver.cpp @cost:10
 WebProcessProxyMessageReceiver.cpp @cost:15
 WebResourceLoaderMessageReceiver.cpp @cost:3
 WebSocketChannelMessageReceiver.cpp
-WebSpeechRecognitionConnectionMessageReceiver.cpp
 WebSWClientConnectionMessageReceiver.cpp @cost:3
 WebSWContextManagerConnectionMessageReceiver.cpp @cost:5
 WebSWServerConnectionMessageReceiver.cpp @cost:5

@@ -548,16 +548,6 @@ messages -> WebPageProxy {
     [EnabledBy=AttachmentElementEnabled] RequestAttachmentIcon(String identifier, String contentType, String path, String title, WebCore::FloatSize size)
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisVoiceList() -> (Vector<WebKit::WebSpeechSynthesisVoice> voiceList) Synchronous
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisSpeak(String text, String lang, float volume, float rate, float pitch, MonotonicTime startTime, String voiceURI, String voiceName, String voiceLang, bool localService, bool defaultVoice) -> ()
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisSetFinishedCallback() -> ()
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisCancel()
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisPause() -> ()
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisResume() -> ()
-    [EnabledBy=SpeechSynthesisAPIEnabled] SpeechSynthesisResetState()
-#endif
-
 #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
     ShowPDFContextMenu(struct WebKit::PDFContextMenu contextMenu, WebKit::PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID) -> (std::optional<int32_t> selectedItem)
 #endif

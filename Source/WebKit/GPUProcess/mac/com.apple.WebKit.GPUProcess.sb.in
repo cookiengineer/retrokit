@@ -1057,11 +1057,9 @@
        (subpath "/Library/InputManagers")
        (home-subpath "/Library/InputManagers"))
 (deny user-preference-read (with no-report)
-    (preference-domain "com.apple.speech.recognition.AppleSpeechRecognition.prefs"))
 (deny mach-lookup (with no-report)
        (global-name "com.apple.coreservices.appleevents")
        (global-name "com.apple.pasteboard.1")
-       (global-name "com.apple.speech.recognitionserver"))
 
 ;; AirPlay
 (allow mach-lookup

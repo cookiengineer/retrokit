@@ -52,8 +52,6 @@
 #include "RemoteFrameClient.h"
 #include "ScreenOrientationManager.h"
 #include "SocketProvider.h"
-#include "SpeechRecognitionProvider.h"
-#include "SpeechSynthesisClient.h"
 #include "StorageNamespaceProvider.h"
 #include "StorageProvider.h"
 #include "UserContentController.h"
@@ -87,7 +85,6 @@ PageConfiguration::PageConfiguration(
     MainFrameCreationParameters&& mainFrameCreationParameters,
     FrameIdentifier mainFrameIdentifier,
     RefPtr<Frame>&& mainFrameOpener,
-    UniqueRef<SpeechRecognitionProvider>&& speechRecognitionProvider,
     Ref<BroadcastChannelRegistry>&& broadcastChannelRegistry,
     UniqueRef<StorageProvider>&& storageProvider,
     Ref<ModelPlayerProvider>&& modelPlayerProvider,
@@ -127,7 +124,6 @@ PageConfiguration::PageConfiguration(
     , cacheStorageProvider(WTF::move(cacheStorageProvider))
     , userContentProvider(WTF::move(userContentProvider))
     , broadcastChannelRegistry(WTF::move(broadcastChannelRegistry))
-    , speechRecognitionProvider(WTF::move(speechRecognitionProvider))
     , storageProvider(WTF::move(storageProvider))
     , modelPlayerProvider(WTF::move(modelPlayerProvider))
     , badgeClient(WTF::move(badgeClient))

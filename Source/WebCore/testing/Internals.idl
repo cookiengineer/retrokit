@@ -1019,12 +1019,6 @@ enum ContentsFormat {
     [Conditional=ENCRYPTED_MEDIA] MockCDMFactory registerMockCDM();
     undefined enableMockMediaCapabilities();
 
-    [Conditional=SPEECH_SYNTHESIS] undefined enableMockSpeechSynthesizer();
-    [Conditional=SPEECH_SYNTHESIS] undefined simulateSpeechSynthesizerVoiceListChange();
-    [Conditional=SPEECH_SYNTHESIS] undefined enableMockSpeechSynthesizerForMediaElement(HTMLMediaElement element);
-    [Conditional=SPEECH_SYNTHESIS] undefined setInitialVoiceListToEmpty();
-    [Conditional=SPEECH_SYNTHESIS] undefined setSpeechUtteranceDuration(double duration);
-    [Conditional=SPEECH_SYNTHESIS] readonly attribute unsigned long minimumExpectedVoiceCount;
 
     DOMString getImageSourceURL(Element element);
 
@@ -1295,9 +1289,6 @@ enum ContentsFormat {
     [Conditional=VIDEO] readonly attribute unsigned long mediaElementCount;
     [Conditional=VIDEO] undefined setMediaElementVolumeLocked(HTMLMediaElement element, boolean volumeLocked);
     [Conditional=VIDEO] DOMString mediaElementViewportVisibility(HTMLMediaElement element);
-
-    [Conditional=SPEECH_SYNTHESIS] SpeechSynthesisUtterance? speechSynthesisUtteranceForCue(VTTCue cue);
-    [Conditional=SPEECH_SYNTHESIS] VTTCue? mediaElementCurrentlySpokenCue(HTMLMediaElement media);
 
     DOMString ongoingLoadsDescriptions();
     undefined setCaptureExtraNetworkLoadMetricsEnabled(boolean value);

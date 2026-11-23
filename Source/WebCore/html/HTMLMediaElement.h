@@ -112,7 +112,6 @@ class ScriptController;
 class ScriptExecutionContext;
 class SleepDisabler;
 class SourceBuffer;
-class SpeechSynthesis;
 class TextTrackList;
 class TrackOpaqueRoot;
 class TimeRanges;
@@ -683,11 +682,6 @@ public:
     bool showingStats() const { return m_showingStats; }
     void setShowingStats(bool);
 
-    enum class SpeechSynthesisState : uint8_t { None, Speaking, CompletingExtendedDescription, Paused };
-    TextTrackCue* cueBeingSpoken() const { return m_cueBeingSpoken.get(); }
-#if ENABLE(SPEECH_SYNTHESIS)
-    WEBCORE_EXPORT SpeechSynthesis& speechSynthesis();
-#endif
 
     bool hasSource() const { return hasCurrentSrc() || srcObject(); }
 
@@ -977,14 +971,6 @@ private:
     enum class CueAction : uint8_t { Enter, Exit };
     void executeCueEnterOrExitActionForTime(TextTrackCue&, CueAction);
     void speakCueText(TextTrackCue&);
-    void pauseSpeakingCueText();
-    void resumeSpeakingCueText();
-    void cancelSpeakingCueText();
-    bool shouldSpeakCueTextForTime(const MediaTime&);
-    void pausePlaybackForExtendedTextDescription();
-
-    void setSpeechSynthesisState(SpeechSynthesisState);
-
     enum ReconfigureMode { Immediately, AfterDelay };
     void markCaptionAndSubtitleTracksAsUnconfigured(ReconfigureMode);
     CaptionUserPreferences::CaptionDisplayMode captionDisplayMode();
@@ -1461,15 +1447,8 @@ private:
     // Cached by canProduceAudioChanged() so virtualHasPendingActivity() can read it safely from the GC thread.
     std::atomic<bool> m_cachedCanProduceAudio { false };
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    RefPtr<SpeechSynthesis> m_speechSynthesis;
-#endif
-    SpeechSynthesisState m_speechState { SpeechSynthesisState::None };
-    RefPtr<TextTrackCue> m_cueBeingSpoken;
-    double m_volumeMultiplierForSpeechSynthesis { 1 };
     bool m_userPrefersTextDescriptions { false };
     bool m_userPrefersExtendedDescriptions { false };
-    bool m_changingSynthesisState { false };
 
     FloatSize m_videoLayerSize { };
 
@@ -1514,7 +1493,6 @@ private:
 };
 
 String convertEnumerationToString(HTMLMediaElement::AutoplayEventPlaybackState);
-String convertEnumerationToString(HTMLMediaElement::SpeechSynthesisState);
 
 inline HTMLMediaElement* MediaElementSession::element() const
 {
@@ -1527,10 +1505,6 @@ namespace WTF {
 
 template<> struct LogArgument<WebCore::HTMLMediaElement::AutoplayEventPlaybackState> {
     static String toString(WebCore::HTMLMediaElement::AutoplayEventPlaybackState reason) { return convertEnumerationToString(reason); }
-};
-
-template<> struct LogArgument<WebCore::HTMLMediaElement::SpeechSynthesisState> {
-    static String toString(WebCore::HTMLMediaElement::SpeechSynthesisState state) { return convertEnumerationToString(state); }
 };
 
 } // namespace WTF

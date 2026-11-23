@@ -234,7 +234,6 @@
 #include "ShouldPartitionCookie.h"
 #include "SocketProvider.h"
 #include "SourceBuffer.h"
-#include "SpeechSynthesisUtterance.h"
 #include "SpellChecker.h"
 #include "StaticNodeList.h"
 #include "StorageNamespace.h"
@@ -329,12 +328,6 @@
 
 #if ENABLE(WEBGL)
 #include "WebGLRenderingContext.h"
-#endif
-
-#if ENABLE(SPEECH_SYNTHESIS)
-#include "LocalDOMWindowSpeechSynthesis.h"
-#include "PlatformSpeechSynthesizerMock.h"
-#include "SpeechSynthesis.h"
 #endif
 
 
@@ -1816,79 +1809,6 @@ ExceptionOr<void> Internals::setFormControlStateOfPreviousHistoryItem(const Vect
         return Exception { ExceptionCode::InvalidAccessError };
     return { };
 }
-
-#if ENABLE(SPEECH_SYNTHESIS)
-void Internals::simulateSpeechSynthesizerVoiceListChange()
-{
-    if (m_platformSpeechSynthesizer) {
-        m_platformSpeechSynthesizer->setInitialVoiceListToEmpty(false);
-        m_platformSpeechSynthesizer->initializeVoiceList();
-        if (RefPtr client = m_platformSpeechSynthesizer->client())
-            client->voicesDidChange();
-        return;
-    }
-
-    RefPtr document = contextDocument();
-    if (!document || !document->window())
-        return;
-
-    if (RefPtr synthesis = LocalDOMWindowSpeechSynthesis::speechSynthesis(*document->window()))
-        synthesis->simulateVoicesListChange();
-}
-
-void Internals::enableMockSpeechSynthesizer()
-{
-    auto document = contextDocument();
-    if (!document || !document->window())
-        return;
-    auto synthesis = LocalDOMWindowSpeechSynthesis::speechSynthesis(*document->window());
-    if (!synthesis)
-        return;
-
-    Ref mock = PlatformSpeechSynthesizerMock::create(*synthesis);
-    m_platformSpeechSynthesizer = mock.copyRef();
-    synthesis->setPlatformSynthesizer(WTF::move(mock));
-}
-
-void Internals::enableMockSpeechSynthesizerForMediaElement(HTMLMediaElement& element)
-{
-    auto& synthesis = element.speechSynthesis();
-    Ref mock = PlatformSpeechSynthesizerMock::create(synthesis);
-
-    m_platformSpeechSynthesizer = mock.copyRef();
-    synthesis.setPlatformSynthesizer(WTF::move(mock));
-}
-
-void Internals::setInitialVoiceListToEmpty()
-{
-    if (m_platformSpeechSynthesizer)
-        m_platformSpeechSynthesizer->setInitialVoiceListToEmpty(true);
-}
-
-ExceptionOr<void> Internals::setSpeechUtteranceDuration(double duration)
-{
-    if (!m_platformSpeechSynthesizer)
-        return Exception { ExceptionCode::InvalidAccessError };
-
-    m_platformSpeechSynthesizer->setUtteranceDuration(Seconds(duration));
-    return { };
-}
-
-unsigned Internals::minimumExpectedVoiceCount()
-{
-    // https://webkit.org/b/250656
-#if PLATFORM(MAC)
-    return 21;
-#elif USE(GLIB)
-    return 4;
-#else
-    return 1;
-#endif
-}
-
-#endif
-
-
 
 
 ExceptionOr<Ref<DOMRect>> Internals::absoluteLineRectFromPoint(int x, int y)
@@ -5619,22 +5539,6 @@ String Internals::mediaElementViewportVisibility(HTMLMediaElement& element)
     return convertEnumerationToString(element.viewportVisibility());
 }
 
-#if ENABLE(SPEECH_SYNTHESIS)
-SpeechSynthesisUtterance* Internals::speechSynthesisUtteranceForCue(const VTTCue& cue)
-{
-    return cue.speechUtterance();
-}
-
-ExceptionOr<RefPtr<VTTCue>> Internals::mediaElementCurrentlySpokenCue(HTMLMediaElement& element)
-{
-    RefPtr cue = dynamicDowncast<VTTCue>(element.cueBeingSpoken());
-    ASSERT(cue);
-    if (!cue)
-        return Exception { ExceptionCode::InvalidAccessError };
-
-    return cue;
-}
-#endif
 
 bool Internals::elementIsActiveNowPlayingSession(HTMLMediaElement& element) const
 {

@@ -97,9 +97,7 @@ platform/gstreamer/GStreamerQuirkRealtek.cpp
 platform/gstreamer/GStreamerQuirkRialto.cpp
 platform/gstreamer/GStreamerQuirkWesteros.cpp
 platform/gstreamer/GStreamerQuirks.cpp
-platform/gstreamer/PlatformSpeechSynthesizerGStreamer.cpp
 platform/gstreamer/VideoEncoderPrivateGStreamer.cpp
-platform/gstreamer/WebKitFliteSourceGStreamer.cpp
 
 
 

@@ -179,8 +179,6 @@
 #include "Settings.h"
 #include "SharedBuffer.h"
 #include "SocketProvider.h"
-#include "SpeechRecognitionProvider.h"
-#include "SpeechSynthesisClient.h"
 #include "StorageArea.h"
 #include "StorageNamespace.h"
 #include "StorageNamespaceProvider.h"
@@ -401,10 +399,6 @@ Page::Page(PageConfiguration&& pageConfiguration)
     , m_validationMessageClient(WTF::move(pageConfiguration.validationMessageClient))
     , m_diagnosticLoggingClient(WTF::move(pageConfiguration.diagnosticLoggingClient))
     , m_performanceLoggingClient(WTF::move(pageConfiguration.performanceLoggingClient))
-#if ENABLE(SPEECH_SYNTHESIS)
-    , m_speechSynthesisClient(WTF::move(pageConfiguration.speechSynthesisClient))
-#endif
-    , m_speechRecognitionProvider((WTF::move(pageConfiguration.speechRecognitionProvider)))
 #if PLATFORM(IOS_FAMILY)
     , m_canShowWhileLocked(pageConfiguration.canShowWhileLocked)
 #endif
@@ -4863,11 +4857,6 @@ void Page::mainFrameDidChangeToNonInitialEmptyDocument()
     for (auto& userStyleSheet : borrow(m_userStyleSheetsPendingInjection).get())
         injectUserStyleSheet(userStyleSheet);
     m_userStyleSheetsPendingInjection.clear();
-}
-
-SpeechRecognitionConnection& Page::speechRecognitionConnection()
-{
-    return m_speechRecognitionProvider->speechRecognitionConnection();
 }
 
 WTF::TextStream& operator<<(WTF::TextStream& ts, RenderingUpdateStep step)

@@ -62,9 +62,6 @@ SharedWorkerGlobalScope
 SourceBuffer conditional=MEDIA_SOURCE
 SourceBufferList conditional=MEDIA_SOURCE
 ScreenOrientation
-SpeechRecognition
-SpeechSynthesis conditional=SPEECH_SYNTHESIS
-SpeechSynthesisUtterance conditional=SPEECH_SYNTHESIS
 TextTrack conditional=VIDEO
 TextTrackCue conditional=VIDEO
 TextTrackCueGeneric conditional=VIDEO

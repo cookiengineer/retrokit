@@ -136,7 +136,6 @@ class SerializedScriptValue;
 class ServiceWorker;
 class SharedBuffer;
 class SourceBuffer;
-class SpeechSynthesisUtterance;
 class StaticRange;
 class StringCallback;
 class StyleSheet;
@@ -178,10 +177,6 @@ class MockMediaSessionCoordinator;
 
 #if ENABLE(MODEL_ELEMENT)
 class HTMLModelElement;
-#endif
-
-#if ENABLE(SPEECH_SYNTHESIS)
-class PlatformSpeechSynthesizerMock;
 #endif
 
 #if ENABLE(WEB_CODECS)
@@ -998,15 +993,6 @@ class Internals final
 
     void NODELETE enableMockMediaCapabilities();
 
-    #if ENABLE(SPEECH_SYNTHESIS)
-        void simulateSpeechSynthesizerVoiceListChange();
-        void enableMockSpeechSynthesizer();
-        void enableMockSpeechSynthesizerForMediaElement(HTMLMediaElement&);
-        void NODELETE setInitialVoiceListToEmpty();
-        ExceptionOr<void> setSpeechUtteranceDuration(double);
-        unsigned NODELETE minimumExpectedVoiceCount();
-    #endif
-
 
 
     String getImageSourceURL(Element&);
@@ -1362,10 +1348,6 @@ class Internals final
         void setMediaElementVolumeLocked(HTMLMediaElement&, bool);
         String mediaElementViewportVisibility(HTMLMediaElement&);
 
-    #if ENABLE(SPEECH_SYNTHESIS)
-        SpeechSynthesisUtterance* NODELETE speechSynthesisUtteranceForCue(const VTTCue&);
-        ExceptionOr<RefPtr<VTTCue>> mediaElementCurrentlySpokenCue(HTMLMediaElement&);
-    #endif
 
         bool elementIsActiveNowPlayingSession(HTMLMediaElement&) const;
 
@@ -1650,9 +1632,6 @@ class Internals final
     std::unique_ptr<TextIterator> m_textIterator;
 
 
-    #if ENABLE(SPEECH_SYNTHESIS)
-        RefPtr<PlatformSpeechSynthesizerMock> m_platformSpeechSynthesizer;
-    #endif
     #if ENABLE(MEDIA_SESSION_COORDINATOR)
         RefPtr<MockMediaSessionCoordinator> m_mockMediaSessionCoordinator;
     #endif

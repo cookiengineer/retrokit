@@ -43,7 +43,6 @@
 
 namespace WebCore {
 
-class SpeechSynthesis;
 class TextTrack;
 class TextTrackCue;
 
@@ -135,11 +134,6 @@ public:
 
     unsigned cueIndex() const;
 
-    using SpeakCueCompletionHandler = Function<void(const TextTrackCue&)>;
-    virtual void prepareToSpeak(SpeechSynthesis&, double, double, SpeakCueCompletionHandler&&) { }
-    virtual void beginSpeaking() { }
-    virtual void pauseSpeaking() { }
-    virtual void cancelSpeaking() { }
 
     virtual bool cueContentsMatch(const TextTrackCue&) const;
 

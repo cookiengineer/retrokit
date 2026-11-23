@@ -129,9 +129,6 @@
 #include "SandboxExtension.h"
 #include "SessionHistoryTraversalQueue.h"
 #include "SharedBufferReference.h"
-#include "SpeechRecognitionPermissionManager.h"
-#include "SpeechRecognitionRemoteRealtimeMediaSource.h"
-#include "SpeechRecognitionRemoteRealtimeMediaSourceManager.h"
 #include "SuspendedPageProxy.h"
 #include "SwiftDemoLogoConfirmation.h"
 #include "SyntheticEditingCommandType.h"
@@ -201,7 +198,6 @@
 #include "WebProtectionSpace.h"
 #include "WebResourceLoadStatisticsStore.h"
 #include "WebScreenOrientationManagerProxy.h"
-#include "WebSpeechSynthesisVoice.h"
 #include "WebURLSchemeHandler.h"
 #include "WebUserContentControllerProxy.h"
 #include "WebViewDidMoveToWindowObserver.h"
@@ -2697,10 +2693,6 @@ RefPtr<API::Navigation> WebPageProxy::reload(OptionSet<WebCore::ReloadOption> op
             if (protectedThis->shouldForceForegroundPriorityForClientNavigation())
                 protectedThis->setClientNavigationActivity(navigation);
 
-
-#if ENABLE(SPEECH_SYNTHESIS)
-            protectedThis->resetSpeechSynthesizer();
-#endif
         });
     }
 
@@ -9310,8 +9302,6 @@ void WebPageProxy::didChangeMainDocument(IPC::Connection& connection, FrameIdent
 
     m_isQuotaIncreaseDenied = false;
 
-    m_speechRecognitionPermissionManager = nullptr;
-
 }
 
 void WebPageProxy::viewIsBecomingVisible()
@@ -9328,7 +9318,6 @@ void WebPageProxy::viewIsBecomingVisible()
 void WebPageProxy::viewIsBecomingInvisible()
 {
     WEBPAGEPROXY_RELEASE_LOG(ViewState, "viewIsBecomingInvisible:");
-    protect(legacyMainFrameProcess())->pageIsBecomingInvisible(m_webPageID);
     if (RefPtr drawingAreaProxy = drawingArea())
         drawingAreaProxy->viewIsBecomingInvisible();
 
@@ -13750,15 +13739,9 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
     resetPointerLockState();
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    resetSpeechSynthesizer();
-#endif
-
 #if ENABLE(WEB_AUTHN)
     protect(protect(websiteDataStore())->authenticatorManager())->cancelRequest(m_webPageID, std::nullopt);
 #endif
-
-    m_speechRecognitionPermissionManager = nullptr;
 
 
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER)
@@ -17198,80 +17181,6 @@ void WebPageProxy::resetPaymentCoordinator(ResetStateReason resetStateReason)
 
 #endif // ENABLE(APPLE_PAY)
 
-#if ENABLE(SPEECH_SYNTHESIS)
-
-void WebPageProxy::resetSpeechSynthesizer()
-{
-    if (!internals().optionalSpeechSynthesisData)
-        return;
-
-    auto& synthesisData = *internals().optionalSpeechSynthesisData;
-    synthesisData.speakingFinishedCompletionHandler = nullptr;
-    synthesisData.speakingStartedCompletionHandler = nullptr;
-    synthesisData.speakingPausedCompletionHandler = nullptr;
-    synthesisData.speakingResumedCompletionHandler = nullptr;
-    protect(synthesisData.synthesizer)->resetState();
-}
-
-SpeechSynthesisData& WebPageProxy::Internals::speechSynthesisData()
-{
-    if (!optionalSpeechSynthesisData)
-        optionalSpeechSynthesisData = { PlatformSpeechSynthesizer::create(*this), nullptr, nullptr, nullptr, nullptr, nullptr };
-    return *optionalSpeechSynthesisData;
-}
-
-void WebPageProxy::speechSynthesisVoiceList(CompletionHandler<void(Vector<WebSpeechSynthesisVoice>&&)>&& completionHandler)
-{
-    auto result = protect(internals().speechSynthesisData().synthesizer)->voiceList().map([](auto& voice) {
-        return WebSpeechSynthesisVoice { voice->voiceURI(), voice->name(), voice->lang(), voice->localService(), voice->isDefault() };
-    });
-    completionHandler(WTF::move(result));
-}
-
-void WebPageProxy::speechSynthesisSetFinishedCallback(CompletionHandler<void()>&& completionHandler)
-{
-    internals().speechSynthesisData().speakingFinishedCompletionHandler = WTF::move(completionHandler);
-}
-
-void WebPageProxy::speechSynthesisSpeak(const String& text, const String& lang, float volume, float rate, float pitch, MonotonicTime, const String& voiceURI, const String& voiceName, const String& voiceLang, bool localService, bool defaultVoice, CompletionHandler<void()>&& completionHandler)
-{
-    auto voice = WebCore::PlatformSpeechSynthesisVoice::create(voiceURI, voiceName, voiceLang, localService, defaultVoice);
-    auto utterance = WebCore::PlatformSpeechSynthesisUtterance::create(nullptr);
-    utterance->setText(text);
-    utterance->setLang(lang);
-    utterance->setVolume(volume);
-    utterance->setRate(rate);
-    utterance->setPitch(pitch);
-    utterance->setVoice(&voice.get());
-
-    internals().speechSynthesisData().speakingStartedCompletionHandler = WTF::move(completionHandler);
-    internals().speechSynthesisData().utterance = WTF::move(utterance);
-    protect(internals().speechSynthesisData().synthesizer)->speak(internals().speechSynthesisData().utterance.get());
-}
-
-void WebPageProxy::speechSynthesisCancel()
-{
-    protect(internals().speechSynthesisData().synthesizer)->cancel();
-}
-
-void WebPageProxy::speechSynthesisResetState()
-{
-    protect(internals().speechSynthesisData().synthesizer)->resetState();
-}
-
-void WebPageProxy::speechSynthesisPause(CompletionHandler<void()>&& completionHandler)
-{
-    internals().speechSynthesisData().speakingPausedCompletionHandler = WTF::move(completionHandler);
-    protect(internals().speechSynthesisData().synthesizer)->pause();
-}
-
-void WebPageProxy::speechSynthesisResume(CompletionHandler<void()>&& completionHandler)
-{
-    internals().speechSynthesisData().speakingResumedCompletionHandler = WTF::move(completionHandler);
-    protect(internals().speechSynthesisData().synthesizer)->resume();
-}
-
-#endif // ENABLE(SPEECH_SYNTHESIS)
 
 #if !PLATFORM(COCOA)
 
@@ -17635,40 +17544,6 @@ std::optional<IPC::AsyncReplyID> WebPageProxy::willPerformPasteCommand(DOMPasteA
 }
 
 #endif
-
-void WebPageProxy::requestSpeechRecognitionPermission(WebCore::SpeechRecognitionRequest& request, FrameInfoData&& frameInfo, CompletionHandler<void(std::optional<SpeechRecognitionError>&&)>&& completionHandler)
-{
-    if (!m_speechRecognitionPermissionManager)
-        m_speechRecognitionPermissionManager = SpeechRecognitionPermissionManager::create(*this);
-
-    protect(speechRecognitionPermissionManager())->request(request, WTF::move(frameInfo), WTF::move(completionHandler));
-}
-
-void WebPageProxy::requestSpeechRecognitionPermissionByDefaultAction(const WebCore::SecurityOriginData& origin, CompletionHandler<void(bool)>&& completionHandler)
-{
-    RefPtr speechRecognitionPermissionManager = m_speechRecognitionPermissionManager.get();
-    if (!speechRecognitionPermissionManager) {
-        completionHandler(false);
-        return;
-    }
-
-    speechRecognitionPermissionManager->decideByDefaultAction(origin, WTF::move(completionHandler));
-}
-
-void WebPageProxy::requestUserMediaPermissionForSpeechRecognition(FrameIdentifier mainFrameIdentifier, FrameInfoData&& frameInfo, const WebCore::SecurityOrigin& requestingOrigin, const WebCore::SecurityOrigin& topOrigin, CompletionHandler<void(bool)>&& completionHandler)
-{
-#if ENABLE(MEDIA_STREAM)
-    auto captureDevice = SpeechRecognitionCaptureSource::findCaptureDevice();
-    if (!captureDevice) {
-        completionHandler(false);
-        return;
-    }
-
-    protect(userMediaPermissionRequestManager())->checkUserMediaPermissionForSpeechRecognition(mainFrameIdentifier, WTF::move(frameInfo), requestingOrigin, topOrigin, *captureDevice, WTF::move(completionHandler));
-#else
-    completionHandler(false);
-#endif
-}
 
 void WebPageProxy::requestMediaKeySystemPermissionByDefaultAction(const WebCore::SecurityOriginData&, CompletionHandler<void(bool)>&& completionHandler)
 {

@@ -266,7 +266,6 @@ UIProcess/glib/WebProcessProxyGLib.cpp
 UIProcess/glib/WebTextCheckerClient.cpp
 UIProcess/glib/WebTextChecker.cpp
 
-UIProcess/gstreamer/WebPageProxyGStreamer.cpp
 
 UIProcess/gtk/AcceleratedBackingStore.cpp @no-unify
 UIProcess/gtk/Clipboard.cpp

@@ -47,7 +47,6 @@
 #include "RemoteRemoteCommandListener.h"
 #include "RemoteWebLockRegistry.h"
 #include "RemoteWorkerType.h"
-#include "SpeechRecognitionRealtimeMediaSourceManager.h"
 #include "StorageAreaMap.h"
 #include "UserData.h"
 #include "WebAutomationSessionProxy.h"

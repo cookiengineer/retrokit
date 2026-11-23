@@ -8108,39 +8108,6 @@ SpeculationRulesPrefetchEnabled:
   sharedPreferenceForWebProcess: true
   richJavaScript: true
 
-SpeechRecognitionEnabled:
-  type: bool
-  status: mature
-  humanReadableName: "SpeechRecognition API"
-  humanReadableDescription: "Enable SpeechRecognition of WebSpeech API"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "HAVE(SPEECHRECOGNIZER) && ENABLE(MEDIA_STREAM)": true
-      default: false
-    WebCore:
-      default: false
-  disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-
-SpeechSynthesisAPIEnabled:
-  type: bool
-  status: embedder
-  humanReadableName: "SpeechSynthesis API"
-  humanReadableDescription: "SpeechSynthesis API"
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-  disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-
 SpringTimingFunctionEnabled:
   type: bool
   status: unstable

@@ -77,10 +77,6 @@ JSApplePayShippingMethod.cpp
 JSApplePayShippingMethodSelectedEvent.cpp
 JSApplePayShippingMethodUpdate.cpp
 JSApplePayValidateMerchantEvent.cpp
-JSSpeechSynthesisErrorCode.cpp
-JSSpeechSynthesisErrorEvent.cpp
-JSSpeechSynthesisErrorEventInit.cpp
-JSSpeechSynthesisEventInit.cpp
 Modules/ShapeDetection/Implementation/Cocoa/BarcodeDetectorImplementation.mm @nonARC
 Modules/ShapeDetection/Implementation/Cocoa/FaceDetectorImplementation.mm @nonARC
 Modules/ShapeDetection/Implementation/Cocoa/TextDetectorImplementation.mm @nonARC
@@ -126,9 +122,6 @@ Modules/notifications/NotificationOptionsPayloadCocoa.mm @nonARC
 Modules/notifications/NotificationPayloadCocoa.mm @nonARC
 Modules/push-api/cocoa/PushCryptoCocoa.cpp
 Modules/plugins/YouTubePluginReplacement.cpp
-Modules/speech/cocoa/SpeechRecognizerCocoa.mm @nonARC
-Modules/speech/cocoa/WebSpeechRecognizerTask.mm @nonARC
-Modules/speech/cocoa/WebSpeechRecognizerTaskMock.mm @nonARC
 Modules/system-preview/ARKitBadgeSystemImage.mm @nonARC
 Modules/webdatabase/cocoa/DatabaseManagerCocoa.mm @nonARC
 accessibility/cocoa/AXCoreObjectCocoa.mm @nonARC
@@ -321,7 +314,6 @@ platform/cocoa/PasteboardCocoa.mm @nonARC
 platform/cocoa/PasteboardCustomDataCocoa.mm @nonARC
 platform/cocoa/PhotosFormatSoftLink.mm @nonARC
 platform/cocoa/PlatformPasteboardCocoa.mm @nonARC
-platform/cocoa/PlatformSpeechSynthesizerCocoa.mm @nonARC @no-unify-when(bundle<=8)
 platform/cocoa/PlaybackSessionModelMediaElement.mm @nonARC
 platform/cocoa/PowerSourceNotifier.mm @nonARC
 platform/cocoa/PublicSuffixStoreCocoa.mm @nonARC

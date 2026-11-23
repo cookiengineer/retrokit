@@ -74,8 +74,6 @@ messages -> WebProcessProxy WantsDispatchMessage {
     SendMessageToWebContextWithReply(struct WebKit::UserMessage userMessage) -> (struct WebKit::UserMessage replyMessage)
 #endif
 
-    [EnabledBy=SpeechRecognitionEnabled] CreateSpeechRecognitionServer(WebCore::PageIdentifier identifier)
-    [EnabledBy=SpeechRecognitionEnabled] DestroySpeechRecognitionServer(WebCore::PageIdentifier identifier)
 
     SystemBeep()
 

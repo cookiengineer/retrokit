@@ -2872,15 +2872,6 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
     [self _setBoolValue:flag forKey:WebKitMediaRecorderEnabledPreferenceKey];
 }
 
-- (BOOL)_speechRecognitionEnabled
-{
-    return [self _boolValueForKey:WebKitSpeechRecognitionEnabledPreferenceKey];
-}
-
-- (void)_setSpeechRecognitionEnabled:(BOOL)flag
-{
-    [self _setBoolValue:flag forKey:WebKitSpeechRecognitionEnabledPreferenceKey];
-}
 
 - (WebKitPitchCorrectionAlgorithm)_pitchCorrectionAlgorithm
 {

@@ -305,7 +305,6 @@
 #include "SocketProvider.h"
 #include "SpeculationRules.h"
 #include "SpeculationRulesMatcher.h"
-#include "SpeechRecognition.h"
 #include "StartViewTransitionOptions.h"
 #include "StaticNodeList.h"
 #include "StorageEvent.h"
@@ -6004,15 +6003,6 @@ void Document::removeAudioProducer(MediaProducer& audioProducer)
 {
     RELEASE_ASSERT(isMainThread());
     m_audioProducers.remove(audioProducer);
-    updateIsPlayingMedia();
-}
-
-void Document::setActiveSpeechRecognition(SpeechRecognition* speechRecognition)
-{
-    if (m_activeSpeechRecognition == speechRecognition)
-        return;
-
-    m_activeSpeechRecognition = speechRecognition;
     updateIsPlayingMedia();
 }
 

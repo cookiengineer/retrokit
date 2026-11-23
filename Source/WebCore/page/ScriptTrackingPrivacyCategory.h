@@ -43,7 +43,6 @@ enum class ScriptTrackingPrivacyCategory : uint8_t {
     QueryParameters,
     Referrer,
     ScreenOrViewport,
-    Speech,
     FormControls,
 };
 
@@ -57,7 +56,6 @@ enum class ScriptTrackingPrivacyFlag : uint16_t {
     QueryParameters         = 1 << static_cast<uint8_t>(ScriptTrackingPrivacyCategory::QueryParameters),
     Referrer                = 1 << static_cast<uint8_t>(ScriptTrackingPrivacyCategory::Referrer),
     ScreenOrViewport        = 1 << static_cast<uint8_t>(ScriptTrackingPrivacyCategory::ScreenOrViewport),
-    Speech                  = 1 << static_cast<uint8_t>(ScriptTrackingPrivacyCategory::Speech),
     FormControls            = 1 << static_cast<uint8_t>(ScriptTrackingPrivacyCategory::FormControls),
 };
 

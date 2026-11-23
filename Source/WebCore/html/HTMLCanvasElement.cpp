@@ -735,7 +735,37 @@ RefPtr<ImageData> HTMLCanvasElement::getImageData()
 #endif
 }
 
+#if ENABLE(WEB_CODECS)
 
+// WebCodecs constructs a VideoFrame from a canvas. Canvas capture (MediaStream)
+// is removed, but the canvas-to-VideoFrame path is still needed here.
+RefPtr<VideoFrame> HTMLCanvasElement::toVideoFrame()
+{
+#if PLATFORM(COCOA) || USE(GSTREAMER)
+#if ENABLE(WEBGL)
+    if (RefPtr context = dynamicDowncast<WebGLRenderingContextBase>(m_context.get()))
+        return context->surfaceBufferToVideoFrame(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+#endif
+
+    RefPtr imageBuffer = makeRenderingResultsAvailable();
+    if (!imageBuffer)
+        return nullptr;
+
+    // FIXME: This can likely be optimized quite a bit, especially in the cases where
+    // the ImageBuffer is backed by GPU memory already and/or is in the GPU process by
+    // specializing toVideoFrame() in ImageBufferBackend to not use getPixelBuffer().
+    auto pixelBuffer = imageBuffer->getPixelBuffer({ AlphaPremultiplication::Unpremultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, { { }, imageBuffer->truncatedLogicalSize() });
+    if (!pixelBuffer)
+        return nullptr;
+
+    // FIXME: Set color space.
+    return VideoFrame::createFromPixelBuffer(pixelBuffer.releaseNonNull());
+#else
+    return nullptr;
+#endif
+}
+
+#endif // ENABLE(WEB_CODECS)
 
 SecurityOrigin* HTMLCanvasElement::securityOrigin() const
 {

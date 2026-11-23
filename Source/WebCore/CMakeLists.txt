@@ -63,7 +63,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/Modules/remoteplayback"
     "${WEBCORE_DIR}/Modules/reporting"
     "${WEBCORE_DIR}/Modules/screen-wake-lock"
-    "${WEBCORE_DIR}/Modules/speech"
     "${WEBCORE_DIR}/Modules/storage"
     "${WEBCORE_DIR}/Modules/streams"
     "${WEBCORE_DIR}/Modules/system-preview"
@@ -315,7 +314,6 @@ set(WebCore_IDL_INCLUDES
     Modules/permissions
     Modules/push-api
     Modules/reporting
-    Modules/speech
     Modules/storage
     Modules/streams
     Modules/web-locks
@@ -570,21 +568,6 @@ set(WebCore_NON_SVG_IDL_FILES
     Modules/screen-wake-lock/WakeLockSentinel.idl
     Modules/screen-wake-lock/WakeLockType.idl
 
-    Modules/speech/SpeechRecognitionErrorEvent.idl
-    Modules/speech/SpeechRecognition.idl
-    Modules/speech/SpeechRecognitionAlternative.idl
-    Modules/speech/SpeechRecognitionErrorCode.idl
-    Modules/speech/SpeechRecognitionEvent.idl
-    Modules/speech/SpeechRecognitionResult.idl
-    Modules/speech/SpeechRecognitionResultList.idl
-    Modules/speech/SpeechSynthesisErrorEventInit.idl
-    Modules/speech/SpeechSynthesis.idl
-    Modules/speech/SpeechSynthesisErrorCode.idl
-    Modules/speech/SpeechSynthesisErrorEvent.idl
-    Modules/speech/SpeechSynthesisEvent.idl
-    Modules/speech/SpeechSynthesisEventInit.idl
-    Modules/speech/SpeechSynthesisUtterance.idl
-    Modules/speech/SpeechSynthesisVoice.idl
 
     Modules/storage/StorageManager.idl
 
@@ -1776,7 +1759,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
 
     Modules/screen-wake-lock/Navigator+ScreenWakeLock.idl
 
-    Modules/speech/DOMWindow+SpeechSynthesis.idl
 
     Modules/streams/GenericTransformStream.idl
 

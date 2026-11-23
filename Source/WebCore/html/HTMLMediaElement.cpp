@@ -135,7 +135,6 @@
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "SleepDisabler.h"
-#include "SpeechSynthesis.h"
 #include "TextTrackCueList.h"
 #include "TextTrackList.h"
 #include "TextTrackRepresentation.h"
@@ -345,22 +344,6 @@ String convertEnumerationToString(HTMLMediaElement::TextTrackVisibilityCheckType
     };
     static_assert(static_cast<size_t>(HTMLMediaElement::TextTrackVisibilityCheckType::CheckTextTrackVisibility) == 0, "TextTrackVisibilityCheckType::CheckTextTrackVisibility is not 0 as expected");
     static_assert(static_cast<size_t>(HTMLMediaElement::TextTrackVisibilityCheckType::AssumeTextTrackVisibilityChanged) == 1, "TextTrackVisibilityCheckType::AssumeTextTrackVisibilityChanged is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
-    return values[static_cast<size_t>(enumerationValue)];
-}
-
-String convertEnumerationToString(HTMLMediaElement::SpeechSynthesisState enumerationValue)
-{
-    static const std::array<NeverDestroyed<String>, 4> values {
-        MAKE_STATIC_STRING_IMPL("None"),
-        MAKE_STATIC_STRING_IMPL("Speaking"),
-        MAKE_STATIC_STRING_IMPL("CompletingExtendedDescription"),
-        MAKE_STATIC_STRING_IMPL("Paused"),
-    };
-    static_assert(static_cast<size_t>(HTMLMediaElement::SpeechSynthesisState::None) == 0, "SpeechSynthesisState::None is not 0 as expected");
-    static_assert(static_cast<size_t>(HTMLMediaElement::SpeechSynthesisState::Speaking) == 1, "SpeechSynthesisState::Speaking is not 1 as expected");
-    static_assert(static_cast<size_t>(HTMLMediaElement::SpeechSynthesisState::CompletingExtendedDescription) == 2, "SpeechSynthesisState::CompletingExtendedDescription is not 2 as expected");
-    static_assert(static_cast<size_t>(HTMLMediaElement::SpeechSynthesisState::Paused) == 3, "SpeechSynthesisState::Paused is not 3 as expected");
     ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
@@ -935,13 +918,6 @@ void HTMLMediaElement::registerWithDocument(Document& document)
 void HTMLMediaElement::unregisterWithDocument(Document& document)
 {
     document.unregisterMediaElement(*this);
-
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (RefPtr speechSynthesis = m_speechSynthesis) {
-        speechSynthesis->cancel();
-        m_speechSynthesis = nullptr;
-    }
-#endif
 
     invalidateMediaSession();
 
@@ -2433,165 +2409,6 @@ void HTMLMediaElement::updateActiveTextTrackCues(const MediaTime& movieTime)
         updateTextTrackDisplay();
 }
 
-void HTMLMediaElement::setSpeechSynthesisState(SpeechSynthesisState state)
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    constexpr double volumeMultiplierWhenSpeakingCueText = .4;
-
-    if (m_changingSynthesisState || state == m_speechState)
-        return;
-
-    RefPtr cueBeingSpoken = m_cueBeingSpoken;
-    if (cueBeingSpoken)
-        ALWAYS_LOG(LOGIDENTIFIER, "changing state from ", m_speechState, " to ", state, ", at time ", currentMediaTime(), ", for cue ", cueBeingSpoken->startTime(), "..", cueBeingSpoken->endTime());
-    else
-        ALWAYS_LOG(LOGIDENTIFIER, "changing state from ", m_speechState, " to ", state, ", at time ", currentMediaTime());
-
-    SetForScope<bool> changingState { m_changingSynthesisState, true };
-    auto setSpeechVolumeMultiplier = [this] (double multiplier) {
-        m_volumeMultiplierForSpeechSynthesis = multiplier;
-        updateVolume();
-    };
-
-    auto oldState = m_speechState;
-    m_speechState = state;
-    switch (state) {
-    case SpeechSynthesisState::None:
-        setSpeechVolumeMultiplier(1);
-        if (oldState == SpeechSynthesisState::CompletingExtendedDescription && m_paused)
-            play();
-
-        if (!cueBeingSpoken)
-            return;
-
-        cueBeingSpoken->cancelSpeaking();
-        m_cueBeingSpoken = nullptr;
-        break;
-
-    case SpeechSynthesisState::Speaking:
-        ASSERT(cueBeingSpoken);
-        setSpeechVolumeMultiplier(volumeMultiplierWhenSpeakingCueText);
-        cueBeingSpoken->beginSpeaking();
-        break;
-
-    case SpeechSynthesisState::CompletingExtendedDescription:
-        if (cueBeingSpoken)
-            pauseInternal();
-        break;
-
-    case SpeechSynthesisState::Paused:
-        if (cueBeingSpoken)
-            cueBeingSpoken->pauseSpeaking();
-        break;
-    }
-#else
-    UNUSED_PARAM(state);
-#endif
-}
-
-void HTMLMediaElement::speakCueText(TextTrackCue& cue)
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (RefPtr cueBeingSpoken = m_cueBeingSpoken; cueBeingSpoken && cueBeingSpoken->isEqual(cue, TextTrackCue::MatchAllFields))
-        return;
-
-    ALWAYS_LOG(LOGIDENTIFIER, cue);
-
-    if (m_speechState != SpeechSynthesisState::None)
-        cancelSpeakingCueText();
-
-    m_cueBeingSpoken = cue;
-    protect(m_cueBeingSpoken)->prepareToSpeak(protect(speechSynthesis()), m_reportedPlaybackRate ? m_reportedPlaybackRate : m_requestedPlaybackRate, volume(), [weakThis = WeakPtr { *this }](const TextTrackCue&) {
-        ASSERT(isMainThread());
-        RefPtr<HTMLMediaElement> protectedThis = weakThis.get();
-        if (!protectedThis)
-            return;
-
-        protectedThis->setSpeechSynthesisState(SpeechSynthesisState::None);
-    });
-
-    if (m_pausedInternal || m_paused)
-        setSpeechSynthesisState(SpeechSynthesisState::Paused);
-    else
-        setSpeechSynthesisState(SpeechSynthesisState::Speaking);
-#else
-    UNUSED_PARAM(cue);
-#endif
-}
-
-void HTMLMediaElement::pauseSpeakingCueText()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (m_speechState != SpeechSynthesisState::Speaking && m_speechState != SpeechSynthesisState::CompletingExtendedDescription)
-        return;
-
-    HTMLMEDIAELEMENT_RELEASE_LOG(PauseSpeakingCueText);
-    setSpeechSynthesisState(SpeechSynthesisState::Paused);
-#endif
-}
-
-void HTMLMediaElement::resumeSpeakingCueText()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (m_speechState != SpeechSynthesisState::Paused && m_speechState != SpeechSynthesisState::CompletingExtendedDescription)
-        return;
-
-    HTMLMEDIAELEMENT_RELEASE_LOG(ResumeSpeakingCueText);
-    setSpeechSynthesisState(SpeechSynthesisState::Speaking);
-#endif
-}
-
-void HTMLMediaElement::cancelSpeakingCueText()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (m_speechState == SpeechSynthesisState::None)
-        return;
-
-    HTMLMEDIAELEMENT_RELEASE_LOG(CancelSpeakingCueText);
-    setSpeechSynthesisState(SpeechSynthesisState::None);
-#endif
-}
-
-void HTMLMediaElement::pausePlaybackForExtendedTextDescription()
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    if (m_speechState != SpeechSynthesisState::Speaking)
-        return;
-
-    HTMLMEDIAELEMENT_RELEASE_LOG(PausePlaybackForExtendedTextDescription);
-    setSpeechSynthesisState(SpeechSynthesisState::CompletingExtendedDescription);
-#endif
-}
-
-bool HTMLMediaElement::shouldSpeakCueTextForTime(const MediaTime& time)
-{
-#if ENABLE(SPEECH_SYNTHESIS)
-    RefPtr cueBeingSpoken = m_cueBeingSpoken;
-    if (!cueBeingSpoken)
-        return false;
-
-    auto result = time.toDouble() >= cueBeingSpoken->startTime() && time.toDouble() < cueBeingSpoken->endTime();
-    ALWAYS_LOG(LOGIDENTIFIER, "time = ", time, ", returning ", result);
-
-    return result;
-#else
-    UNUSED_PARAM(time);
-    return false;
-#endif
-}
-
-#if ENABLE(SPEECH_SYNTHESIS)
-SpeechSynthesis& HTMLMediaElement::speechSynthesis()
-{
-    if (!m_speechSynthesis) {
-        m_speechSynthesis = SpeechSynthesis::create(protect(document()));
-        m_speechSynthesis->removeBehaviorRestriction(SpeechSynthesis::BehaviorRestrictionFlags::RequireUserGestureForSpeechStart);
-    }
-
-    return *m_speechSynthesis;
-}
-#endif
-
 void HTMLMediaElement::executeCueEnterOrExitActionForTime(TextTrackCue& cue, CueAction type)
 {
     RefPtr track = cue.track();
@@ -4078,8 +3895,6 @@ void HTMLMediaElement::seekTask()
     // position is available, and, if it is, until it has decoded enough data to play back that position.
     // 13 - Await a stable state. The synchronous section consists of all the remaining steps of this algorithm.
 
-    if (!shouldSpeakCueTextForTime(time))
-        cancelSpeakingCueText();
 }
 
 void HTMLMediaElement::clearSeeking()
@@ -9474,7 +9289,7 @@ double HTMLMediaElement::effectiveVolume() const
         pageMultiplier = 1;
 #endif
 
-    return m_volume * m_volumeMultiplierForSpeechSynthesis * pageMultiplier * mediaControllerMultiplier;
+    return m_volume * pageMultiplier * mediaControllerMultiplier;
 }
 
 bool HTMLMediaElement::effectiveMuted() const

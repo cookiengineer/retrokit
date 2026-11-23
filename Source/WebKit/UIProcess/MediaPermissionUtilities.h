@@ -56,14 +56,12 @@ enum class MediaPermissionReason {
     Camera,
     CameraAndMicrophone,
     Microphone,
-    SpeechRecognition,
     ScreenCapture
 };
 
 #if PLATFORM(COCOA)
 bool checkSandboxRequirementForType(MediaPermissionType);
 bool checkUsageDescriptionStringForType(MediaPermissionType);
-bool checkUsageDescriptionStringForSpeechRecognition();
 
 RetainPtr<NSString> applicationVisibleNameFromOrigin(const WebCore::SecurityOriginData&);
 RetainPtr<NSString> applicationVisibleName();
@@ -71,12 +69,6 @@ void alertForPermission(WebPageProxy&, MediaPermissionReason, const WebCore::Sec
 
 void requestAVCaptureAccessForType(MediaPermissionType, CompletionHandler<void(bool authorized)>&&);
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType);
-#endif
-
-#if HAVE(SPEECHRECOGNIZER)
-void requestSpeechRecognitionAccess(CompletionHandler<void(bool authorized)>&&);
-MediaPermissionResult checkSpeechRecognitionServiceAccess();
-bool checkSpeechRecognitionServiceAvailability(const String& localeIdentifier);
 #endif
 
 } // namespace WebKit

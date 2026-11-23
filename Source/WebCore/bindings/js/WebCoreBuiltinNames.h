@@ -432,12 +432,6 @@ namespace WebCore {
     macro(ShadowRoot) \
     macro(SharedWorker) \
     macro(SharedWorkerGlobalScope) \
-    macro(SpeechRecognition) \
-    macro(SpeechRecognitionAlternative) \
-    macro(SpeechRecognitionErrorEvent) \
-    macro(SpeechRecognitionEvent) \
-    macro(SpeechRecognitionResult) \
-    macro(SpeechRecognitionResultList) \
     macro(SourceBuffer) \
     macro(SourceBufferList) \
     macro(StaticRange) \
@@ -680,12 +674,6 @@ namespace WebCore {
     macro(showModalDialog) \
     macro(signal) \
     macro(signalAbort) \
-    macro(speechSynthesis) \
-    macro(SpeechSynthesis) \
-    macro(SpeechSynthesisErrorEvent) \
-    macro(SpeechSynthesisEvent) \
-    macro(SpeechSynthesisUtterance) \
-    macro(SpeechSynthesisVoice) \
     macro(start) \
     macro(startConsumingStream) \
     macro(started) \
@@ -731,7 +719,6 @@ namespace WebCore {
     macro(webkitIndexedDB) \
     macro(webkitOfflineAudioContext) \
     macro(webkitOscillatorNode) \
-    macro(webkitSpeechRecognition) \
     macro(window) \
     macro(writable) \
     macro(writeAlgorithm) \

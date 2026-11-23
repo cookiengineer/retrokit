@@ -298,7 +298,6 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 @property (nonatomic, setter=_setMediaRecorderEnabled:) BOOL _mediaRecorderEnabled;
 @property (nonatomic) BOOL contactPickerAPIEnabled;
 @property (nonatomic) BOOL digitalCredentialsEnabled;
-@property (nonatomic, setter=_setSpeechRecognitionEnabled:) BOOL _speechRecognitionEnabled;
 @property (nonatomic, setter=_setPitchCorrectionAlgorithm:) WebKitPitchCorrectionAlgorithm _pitchCorrectionAlgorithm;
 @end
 

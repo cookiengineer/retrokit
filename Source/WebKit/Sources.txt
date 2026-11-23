@@ -423,10 +423,8 @@ UIProcess/RemotePageVideoPresentationManagerProxy.cpp
 UIProcess/RemotePageWebAuthenticatorCoordinatorProxy.cpp
 UIProcess/ResponsivenessTimer.cpp
 UIProcess/SessionHistoryTraversalQueue.cpp
-UIProcess/SpeechRecognitionServer.cpp
 UIProcess/SuspendedPageProxy.cpp @cost:5
 UIProcess/SystemPreviewController.cpp
-UIProcess/SpeechRecognitionPermissionManager.cpp
 UIProcess/TextChecker.cpp
 UIProcess/TextCheckerCompletion.cpp
 UIProcess/TextExtractionAssertionScope.cpp
@@ -874,8 +872,6 @@ WebProcess/WebCoreSupport/WebRemoteFrameClient.cpp
 WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp
 WebProcess/WebCoreSupport/WebScreenOrientationManager.cpp
 WebProcess/WebCoreSupport/WebSearchPopupMenu.cpp
-WebProcess/WebCoreSupport/WebSpeechRecognitionConnection.cpp
-WebProcess/WebCoreSupport/WebSpeechSynthesisClient.cpp
 WebProcess/WebCoreSupport/WebStorageConnection.cpp
 WebProcess/WebCoreSupport/WebWorkerClient.cpp
 

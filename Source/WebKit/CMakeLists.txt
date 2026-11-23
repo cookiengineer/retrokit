@@ -109,7 +109,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/Plugins"
     "${WEBKIT_DIR}/WebProcess/Plugins/Netscape"
     "${WEBKIT_DIR}/WebProcess/ResourceCache"
-    "${WEBKIT_DIR}/WebProcess/Speech"
     "${WEBKIT_DIR}/WebProcess/Storage"
     "${WEBKIT_DIR}/WebProcess/UserContent"
     "${WEBKIT_DIR}/WebProcess/WebCoreSupport"
@@ -279,7 +278,6 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/Media/RemoteMediaSessionCoordinatorProxy
     UIProcess/Media/RemoteMediaSessionManagerProxy
 
-    UIProcess/SpeechRecognitionServer
     UIProcess/VisitedLinkStore
     UIProcess/WebBackForwardList
     UIProcess/WebFrameProxy
@@ -381,7 +379,6 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/WebCoreSupport/WebFileSystemStorageConnection
     WebProcess/WebCoreSupport/WebPermissionController
     WebProcess/WebCoreSupport/WebScreenOrientationManager
-    WebProcess/WebCoreSupport/WebSpeechRecognitionConnection
 
     WebProcess/WebPage/DrawingArea
     WebProcess/WebPage/EventDispatcher
@@ -697,7 +694,6 @@ set(WebKit_SERIALIZATION_IN_FILES
 
     WebProcess/UserContent/InjectUserScriptImmediately.serialization.in
 
-    WebProcess/WebCoreSupport/WebSpeechSynthesisVoice.serialization.in
 )
 
 set(WebCore_GENERATED_SERIALIZATION_IN_FILES

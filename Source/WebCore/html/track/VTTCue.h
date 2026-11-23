@@ -35,7 +35,6 @@
 
 #include <WebCore/CSSValueKeywords.h>
 #include <WebCore/HTMLElement.h>
-#include <WebCore/SpeechSynthesisUtterance.h>
 #include <WebCore/TextTrackCue.h>
 #include <WebCore/VTTRegion.h>
 #include <wtf/LoggerHelper.h>
@@ -210,10 +209,6 @@ public:
     PositionAlignSetting NODELETE calculateComputedPositionAlignment() const;
     double NODELETE calculateMaximumSize() const;
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    SpeechSynthesisUtterance* speechUtterance() const { return m_speechUtterance.get(); }
-#endif
-
     const LineAndPositionSetting& left() const LIFETIME_BOUND { return m_left; }
     const LineAndPositionSetting& top() const LIFETIME_BOUND { return m_top; }
     const LineAndPositionSetting& width() const LIFETIME_BOUND { return m_width; }
@@ -252,10 +247,6 @@ private:
     };
     CueSetting NODELETE settingName(VTTScanner&);
 
-    void prepareToSpeak(SpeechSynthesis&, double, double, SpeakCueCompletionHandler&&) final;
-    void beginSpeaking() final;
-    void pauseSpeaking() final;
-    void cancelSpeaking() final;
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return *m_logger; }
@@ -282,10 +273,6 @@ private:
     const Ref<HTMLSpanElement> m_cueHighlightBox;
     const Ref<HTMLDivElement> m_cueBackdropBox;
     const RefPtr<VTTCueBox> m_displayTree;
-#if ENABLE(SPEECH_SYNTHESIS)
-    RefPtr<SpeechSynthesis> m_speechSynthesis;
-    RefPtr<SpeechSynthesisUtterance> m_speechUtterance;
-#endif
 
     double m_displaySize { 0 };
     DisplayPosition m_displayPosition;

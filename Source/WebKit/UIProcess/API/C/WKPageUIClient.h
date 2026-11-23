@@ -1452,7 +1452,6 @@ typedef struct WKPageUIClientV15 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
     
 } WKPageUIClientV15;
 
@@ -1561,7 +1560,6 @@ typedef struct WKPageUIClientV16 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
 
     // Version 16.
     WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
@@ -1673,7 +1671,6 @@ typedef struct WKPageUIClientV17 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
 
     // Version 16.
     WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
@@ -1785,7 +1782,6 @@ typedef struct WKPageUIClientV18 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
 
     // Version 16.
     WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
@@ -1899,7 +1895,6 @@ typedef struct WKPageUIClientV19 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
 
     // Version 16.
     WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;

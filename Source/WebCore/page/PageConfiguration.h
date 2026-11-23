@@ -86,8 +86,6 @@ class RemoteFrame;
 class RemoteFrameClient;
 class ScreenOrientationManager;
 class SocketProvider;
-class SpeechRecognitionProvider;
-class SpeechSynthesisClient;
 class StorageNamespaceProvider;
 class StorageProvider;
 class UserContentProvider;
@@ -125,7 +123,6 @@ public:
         MainFrameCreationParameters&&,
         FrameIdentifier mainFrameIdentifier,
         RefPtr<Frame>&& mainFrameOpener,
-        UniqueRef<SpeechRecognitionProvider>&&,
         Ref<BroadcastChannelRegistry>&&,
         UniqueRef<StorageProvider>&&,
         Ref<ModelPlayerProvider>&&,
@@ -183,9 +180,6 @@ public:
     RefPtr<Frame> mainFrameOpener;
     std::unique_ptr<DiagnosticLoggingClient> diagnosticLoggingClient;
     std::unique_ptr<PerformanceLoggingClient> performanceLoggingClient;
-#if ENABLE(SPEECH_SYNTHESIS)
-    RefPtr<SpeechSynthesisClient> speechSynthesisClient;
-#endif
 
     RefPtr<DatabaseProvider> databaseProvider;
     Ref<CacheStorageProvider> cacheStorageProvider;
@@ -198,7 +192,6 @@ public:
 
     Vector<UserContentURLPattern> corsDisablingPatterns;
     HashSet<String> maskedURLSchemes;
-    UniqueRef<SpeechRecognitionProvider> speechRecognitionProvider;
 
     // FIXME: These should be all be Settings.
     bool loadsSubresources { true };

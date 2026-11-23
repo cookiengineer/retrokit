@@ -36,7 +36,6 @@ list(APPEND PAL_PUBLIC_HEADERS
     cocoa/QuartzCoreSoftLink.h
     cocoa/RevealSoftLink.h
     cocoa/ScreenTimeSoftLink.h
-    cocoa/SpeechSoftLink.h
     cocoa/TranslationUIServicesSoftLink.h
     cocoa/VisionKitCoreSoftLink.h
     cocoa/VisionSoftLink.h
@@ -131,7 +130,6 @@ list(APPEND PAL_PUBLIC_HEADERS
     spi/cocoa/SQLite3SPI.h
     spi/cocoa/SecKeyProxySPI.h
     spi/cocoa/ServersSPI.h
-    spi/cocoa/SpeechSPI.h
     spi/cocoa/TCCSPI.h
     spi/cocoa/TranslationUIServicesSPI.h
     spi/cocoa/UIFoundationSPI.h

@@ -182,7 +182,6 @@ struct UIEdgeInsets;
 
 - (void)_webView:(WKWebView *)webView willShareActivityItems:(NSArray *)activityItems WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
-- (void)_webView:(WKWebView *)webView requestSpeechRecognitionPermissionForOrigin:(WKSecurityOrigin *)origin decisionHandler:(void (^)(BOOL authorized))decisionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
 - (void)_webViewDidEnableInspectorBrowserDomain:(WKWebView *)webView WK_API_AVAILABLE(macos(12.0), ios(15.0));
 - (void)_webViewDidDisableInspectorBrowserDomain:(WKWebView *)webView WK_API_AVAILABLE(macos(12.0), ios(15.0));

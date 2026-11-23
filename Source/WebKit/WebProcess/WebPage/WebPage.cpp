@@ -158,8 +158,6 @@
 #include "WebScreenOrientationManager.h"
 #include "WebServiceWorkerProvider.h"
 #include "WebSocketProvider.h"
-#include "WebSpeechRecognitionProvider.h"
-#include "WebSpeechSynthesisClient.h"
 #include "WebStorageNamespaceProvider.h"
 #include "WebStorageProvider.h"
 #include "WebTouchEvent.h"
@@ -789,7 +787,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
         mainFrameCreationParameters(m_mainFrame.copyRef(), frameType, parameters.initialSandboxFlags, parameters.initialReferrerPolicy),
         m_mainFrame->frameID(),
         frameFromIdentifier(parameters.mainFrameOpenerIdentifier),
-        makeUniqueRef<WebSpeechRecognitionProvider>(pageID),
         WebProcess::singleton().broadcastChannelRegistry(),
         makeUniqueRef<WebStorageProvider>(WebProcess::singleton().mediaKeysStorageDirectory(), WebProcess::singleton().mediaKeysStorageSalt()),
         WebModelPlayerProvider::create(*this),
@@ -820,10 +817,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     pageConfiguration.diagnosticLoggingClient = makeUnique<WebDiagnosticLoggingClient>(*this);
     pageConfiguration.performanceLoggingClient = makeUnique<WebPerformanceLoggingClient>(*this);
     pageConfiguration.screenOrientationManager = m_screenOrientationManager.get();
-
-#if ENABLE(SPEECH_SYNTHESIS) && !USE(GSTREAMER)
-    pageConfiguration.speechSynthesisClient = WebSpeechSynthesisClient::create(*this);
-#endif
 
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     pageConfiguration.validationMessageClient = makeUnique<WebValidationMessageClient>(*this);
@@ -9042,25 +9035,6 @@ void WebPage::systemPreviewActionTriggered(WebCore::SystemPreviewInfo previewInf
 }
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-void WebPage::speakingErrorOccurred()
-{
-    if (auto observer = corePage()->speechSynthesisClient()->observer())
-        observer->speakingErrorOccurred();
-}
-
-void WebPage::boundaryEventOccurred(bool wordBoundary, unsigned charIndex, unsigned charLength)
-{
-    if (auto observer = corePage()->speechSynthesisClient()->observer())
-        observer->boundaryEventOccurred(wordBoundary, charIndex, charLength);
-}
-
-void WebPage::voicesDidChange()
-{
-    if (auto observer = corePage()->speechSynthesisClient()->observer())
-        observer->voicesChanged();
-}
-#endif
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 

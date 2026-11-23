@@ -89,7 +89,6 @@ public:
     virtual bool isHTMLVideoElementPictureInPicture() const { return false; }
     virtual bool isInternalSettingsWrapper() const { return false; }
     virtual bool isLocalDOMWindowMediaControls() const { return false; }
-    virtual bool isLocalDOMWindowSpeechSynthesis() const { return false; }
     virtual bool isMediaKeySystemController() const { return false; }
     virtual bool isNavigatorAudioSession() const { return false; }
     virtual bool isNavigatorBeacon() const { return false; }

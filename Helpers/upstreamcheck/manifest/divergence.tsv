@@ -5905,6 +5905,8 @@ web-speech	build_ref	platform/PlatformSpeechSynthesizer.h	Source/WebCore/Headers
 web-speech	file	-	Source/WebCore/Modules/speech/DOMWindow+SpeechSynthesis.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/DOMWindowSpeechSynthesis.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/DOMWindowSpeechSynthesis.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebCore/Modules/speech/LocalDOMWindowSpeechSynthesis.cpp	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/LocalDOMWindowSpeechSynthesis.h	removed	source	curated	2.54 Web Speech API removal
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechRecognition.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechRecognition.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechRecognition.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
@@ -5944,15 +5946,32 @@ web-speech	file	-	Source/WebCore/Modules/speech/SpeechRecognizer.h	removed	sourc
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesis.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesis.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesis.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorCode.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorCode.idl	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorEvent.cpp	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorEvent.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorEvent.idl	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorEventInit.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisErrorEventInit.idl	removed	source	curated	2.54 Web Speech API removal
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisEvent.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisEvent.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisEvent.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisEventInit.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisEventInit.idl	removed	source	curated	2.54 Web Speech API removal
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisUtterance.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisUtterance.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisUtterance.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisVoice.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisVoice.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/Modules/speech/SpeechSynthesisVoice.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebCore/Modules/speech/cocoa/SpeechRecognizerCocoa.mm	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/cocoa/WebSpeechRecognizerTask.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/cocoa/WebSpeechRecognizerTask.mm	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/cocoa/WebSpeechRecognizerTaskMock.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/Modules/speech/cocoa/WebSpeechRecognizerTaskMock.mm	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/PAL/pal/cocoa/SpeechSoftLink.h	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/PAL/pal/cocoa/SpeechSoftLink.mm	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/PAL/pal/spi/cocoa/SpeechSPI.h	removed	source	curated	2.54 Web Speech API removal
 web-speech	build_ref	JSSpeechRecognition.cpp	Source/WebCore/Sources.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=3277; commit=6481ecc73953
 web-speech	build_ref	JSSpeechRecognitionAlternative.cpp	Source/WebCore/Sources.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=3278; commit=6481ecc73953
 web-speech	build_ref	JSSpeechRecognitionErrorCode.cpp	Source/WebCore/Sources.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=3279; commit=6481ecc73953
@@ -6003,8 +6022,11 @@ web-speech	file	-	Source/WebCore/platform/PlatformSpeechSynthesisVoice.cpp	remov
 web-speech	file	-	Source/WebCore/platform/PlatformSpeechSynthesisVoice.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/platform/PlatformSpeechSynthesizer.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/platform/PlatformSpeechSynthesizer.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebCore/platform/cocoa/PlatformSpeechSynthesizerCocoa.mm	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/WebCore/platform/gstreamer/PlatformSpeechSynthesizerGStreamer.cpp	removed	source	curated	2.54 Web Speech API removal
 web-speech	file	-	Source/WebCore/platform/mock/PlatformSpeechSynthesizerMock.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebCore/platform/mock/PlatformSpeechSynthesizerMock.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebCore/platform/spiel/PlatformSpeechSynthesizerSpiel.cpp	removed	source	curated	2.54 Web Speech API removal
 web-speech	build_ref	UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager	Source/WebKit/CMakeLists.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=148; commit=6481ecc73953
 web-speech	build_ref	UIProcess/SpeechRecognitionServer	Source/WebKit/CMakeLists.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=149; commit=6481ecc73953
 web-speech	build_ref	WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager	Source/WebKit/CMakeLists.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=203; commit=6481ecc73953
@@ -6051,6 +6073,7 @@ web-speech	method	WebKit::WebProcessProxy::destroySpeechRecognitionServer	Source
 web-speech	typedef	WebKit::WebProcessProxy::SpeechRecognitionServerMap	Source/WebKit/UIProcess/WebProcessProxy.h	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=670
 web-speech	config_line	CreateSpeechRecognitionServer(WebCore::PageIdentifier identifier)	Source/WebKit/UIProcess/WebProcessProxy.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=86; line=78; commit=6481ecc73953
 web-speech	config_line	DestroySpeechRecognitionServer(WebCore::PageIdentifier identifier)	Source/WebKit/UIProcess/WebProcessProxy.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=87; line=79; commit=6481ecc73953
+web-speech	file	-	Source/WebKit/UIProcess/gstreamer/WebPageProxyGStreamer.cpp	removed	source	curated	2.54 Web Speech API removal
 web-speech	file	-	Source/WebKit/WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebKit/WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebKit/WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
@@ -6061,6 +6084,9 @@ web-speech	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebSpeechRecognitionPr
 web-speech	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebSpeechSynthesisClient.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebSpeechSynthesisClient.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 web-speech	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebSpeechSynthesisVoice.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+web-speech	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebSpeechSynthesisVoice.serialization.in	removed	source	curated	2.54 Web Speech API removal
+web-speech	file	-	Source/cmake/FindFlite.cmake	removed	source	curated	speech synthesis dependency lookup
+web-speech	file	-	Source/cmake/FindLibSpiel.cmake	removed	source	curated	speech synthesis dependency lookup
 web-speech	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SPEECH_SYNTHESIS PRIVATE OFF)	Source/cmake/OptionsFTW.cmake	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=143; commit=6481ecc73953
 web-speech	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SPEECH_SYNTHESIS PRIVATE ON)	Source/cmake/OptionsMac.cmake	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=73; commit=6481ecc73953
 web-speech	flag	WEBKIT_OPTION_DEFINE(ENABLE_SPEECH_SYNTHESIS "Toggle Speech Synthesis API support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=192; commit=6481ecc73953

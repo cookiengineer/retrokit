@@ -529,7 +529,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::SharedWorkerIdentifier"_s,
         "WebCore::SharedWorkerObjectIdentifierID"_s,
         "WebCore::SleepDisablerIdentifier"_s,
-        "WebCore::SpeechRecognitionConnectionClientIdentifier"_s,
         "WebCore::TextCheckingRequestIdentifier"_s,
         "WebCore::TextManipulationItemIdentifier"_s,
         "WebCore::TextManipulationTokenIdentifier"_s,

@@ -2605,12 +2605,6 @@ private:
     void systemPreviewActionTriggered(WebCore::SystemPreviewInfo, const String& message);
 #endif
 
-#if ENABLE(SPEECH_SYNTHESIS)
-    void speakingErrorOccurred();
-    void boundaryEventOccurred(bool wordBoundary, unsigned charIndex, unsigned charLength);
-    void voicesDidChange();
-#endif
-
     void registerURLSchemeHandler(WebURLSchemeHandlerIdentifier, const String& scheme);
 
     void urlSchemeTaskWillPerformRedirection(WebURLSchemeHandlerIdentifier, WebCore::ResourceLoaderIdentifier taskIdentifier, WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);

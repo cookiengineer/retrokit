@@ -756,32 +756,6 @@ header: <WebCore/Report.h>
     String message()
 }
 
-enum class WebCore::SpeechRecognitionErrorType : uint8_t {
-    NoSpeech,
-    Aborted,
-    AudioCapture,
-    Network,
-    NotAllowed,
-    ServiceNotAllowed,
-    BadGrammar,
-    LanguageNotSupported
-};
-
-struct WebCore::SpeechRecognitionError {
-    WebCore::SpeechRecognitionErrorType type;
-    String message;
-};
-
-[CustomHeader] struct WebCore::SpeechRecognitionAlternativeData {
-    String transcript;
-    double confidence;
-};
-
-struct WebCore::SpeechRecognitionResultData {
-    Vector<WebCore::SpeechRecognitionAlternativeData> alternatives;
-    bool isFinal;
-};
-
 struct WebCore::WebLockManagerSnapshot {
     Vector<WebCore::WebLockManagerSnapshot::Info> held;
     Vector<WebCore::WebLockManagerSnapshot::Info> pending;
@@ -3077,26 +3051,6 @@ struct WebCore::AppHighlight {
     WebCore::HighlightRequestOriginatedInApp requestOriginatedInApp;
 };
 #endif // ENABLE(APP_HIGHLIGHTS)
-
-enum class WebCore::SpeechRecognitionUpdateType : uint8_t {
-    Start,
-    AudioStart,
-    SoundStart,
-    SpeechStart,
-    SpeechEnd,
-    SoundEnd,
-    AudioEnd,
-    Result,
-    NoMatch,
-    Error,
-    End
-};
-
-class WebCore::SpeechRecognitionUpdate {
-    WebCore::SpeechRecognitionConnectionClientIdentifier m_clientIdentifier;
-    WebCore::SpeechRecognitionUpdateType m_type;
-    Variant<std::monostate, WebCore::SpeechRecognitionError, Vector<WebCore::SpeechRecognitionResultData>> m_content;
-};
 
 #if USE(SYSTEM_PREVIEW)
 [RefCounted, AdditionalEncoder=StreamConnectionEncoder] class WebCore::ARKitBadgeSystemImage {
@@ -7062,7 +7016,6 @@ header: <WebCore/ScriptTrackingPrivacyCategory.h>
     QueryParameters,
     Referrer,
     ScreenOrViewport,
-    Speech,
     FormControls,
 };
 

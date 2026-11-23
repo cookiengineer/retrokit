@@ -1415,9 +1415,7 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
     return protect(*_preferences)->speechRecognitionEnabled();
 }
 
-- (void)_setSpeechRecognitionEnabled:(BOOL)speechRecognitionEnabled
 {
-    protect(*_preferences)->setSpeechRecognitionEnabled(speechRecognitionEnabled);
 }
 
 - (BOOL)_privateClickMeasurementEnabled

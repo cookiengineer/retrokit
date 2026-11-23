@@ -53,8 +53,6 @@ ASCIILiteral description(ScriptTrackingPrivacyCategory category)
         return "Referrer"_s;
     case ScriptTrackingPrivacyCategory::ScreenOrViewport:
         return "ScreenOrViewport"_s;
-    case ScriptTrackingPrivacyCategory::Speech:
-        return "Speech"_s;
     case ScriptTrackingPrivacyCategory::FormControls:
         return "FormControls"_s;
     }
@@ -83,8 +81,6 @@ ScriptTrackingPrivacyFlag scriptCategoryAsFlag(ScriptTrackingPrivacyCategory cat
         return ScriptTrackingPrivacyFlag::Referrer;
     case ScriptTrackingPrivacyCategory::ScreenOrViewport:
         return ScriptTrackingPrivacyFlag::ScreenOrViewport;
-    case ScriptTrackingPrivacyCategory::Speech:
-        return ScriptTrackingPrivacyFlag::Speech;
     case ScriptTrackingPrivacyCategory::FormControls:
         return ScriptTrackingPrivacyFlag::FormControls;
     }
@@ -105,8 +101,6 @@ bool shouldEnableScriptTrackingPrivacy(ScriptTrackingPrivacyCategory category, O
     case ScriptTrackingPrivacyCategory::QueryParameters:
     case ScriptTrackingPrivacyCategory::Referrer:
     case ScriptTrackingPrivacyCategory::ScreenOrViewport:
-    case ScriptTrackingPrivacyCategory::Speech:
-        return true;
     case ScriptTrackingPrivacyCategory::Cookies:
     case ScriptTrackingPrivacyCategory::LocalStorage:
     case ScriptTrackingPrivacyCategory::FormControls:
