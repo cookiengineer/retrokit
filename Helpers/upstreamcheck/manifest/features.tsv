@@ -1,4 +1,5 @@
 # id	title	status	security_ref	tokens
+
 arkit-model	ARKIT and Model Element Support	removed	SECURITY.md#library-dependencies	ARKIT,MODEL_ELEMENT,HTMLModelElement
 automation	Web Automation and WebDriver	removed	SECURITY.md#target-platforms	WEBDRIVER,WebAutomation,AutomationSession
 custom-protocol	Legacy Custom Protocol Support	removed	SECURITY.md#legacy-hacks	LEGACY_CUSTOM_PROTOCOL_MANAGER,LegacyCustomProtocol,WKContextRegisterSchemeForCustomProtocol,WKContextUnregisterSchemeForCustomProtocol,registerGlobalURLSchemeAsHavingCustomProtocolHandlers,unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers,urlSchemesWithCustomProtocolHandlers,urlSchemesWithLegacyCustomProtocolHandlers,urlSchemesRegisteredForCustomProtocols,customProtocolManagerClient
@@ -13,7 +14,7 @@ incremental-pdf	Incremental PDF APIs	removed	SECURITY.md#legacy-plugins	INCREMEN
 libnotify	libnotify Integration	removed	SECURITY.md#library-dependencies	LIBNOTIFY,USE_LIBNOTIFY,libnotify,notify_init,notify_notification
 libsecret	libsecret Integration	removed	SECURITY.md#library-dependencies	LIBSECRET,USE_LIBSECRET,libsecret,Secret::Secret,secret_service_search,secret_service_store
 maintenance	Maintenance and build fixes	maintenance		
-media-capture	Media Capture and Streams API	removed	SECURITY.md#ecmascript-apis	MEDIA_CAPTURE,MEDIA_STREAM,getUserMedia,MediaStream,MediaDevices
+media-capture	Media Capture and Streams API	removed	SECURITY.md#ecmascript-apis	MEDIA_CAPTURE,MEDIA_STREAM,getUserMedia,MediaStream,MediaDevices,MediaCapture,RealtimeMediaSource,CaptureDevice
 media-recorder	Media Recorder API	removed	SECURITY.md#ecmascript-apis	MediaRecorder,MEDIA_RECORDER
 media-statistics	Media Statistics API	removed	SECURITY.md#ecmascript-apis	MEDIA_STATISTICS,webkitDecodedFrameCount
 media-usage	Media Usage API	removed	SECURITY.md#ecmascript-apis	MEDIA_USAGE,MediaUsage,MediaUsageInfo,MediaUsageManager,MediaUsageManagerCocoa,MediaUsageState,updateMediaUsageIfChanged,mediaUsageInfo,UsageTracking
@@ -33,8 +34,9 @@ touch-bar	Touch Bar Support	removed	SECURITY.md#target-platforms	TOUCH_BAR,Touch
 translation-ui	Translation UI Services	removed	SECURITY.md#legacy-plugins	TRANSLATION_UI_SERVICES
 translations	Translation Catalogs	removed	SECURITY.md#legacy-quirks	
 web-api-statistics	Web API Statistics	removed	SECURITY.md#ecmascript-apis	WEB_API_STATISTICS,webAPIStatisticsEnabled,WebAPIStatisticsEnabled,logFontLoad,logCanvasRead,logCanvasWriteOrMeasure,logNavigatorAPIAccessed,logScreenAPIAccessed,NavigatorAPIsAccessed,ScreenAPIsAccessed,CanvasActivityRecord
+web-speech	Web Speech API	removed	SECURITY.md#ecmascript-apis	SPEECH_SYNTHESIS,SpeechRecognition,SpeechSynthesis,SpeechRecognitionEnabled,PlatformSpeechSynthesizer,WebSpeechRecognition,WebSpeechSynthesis
 webgl	WebGL API	removed	SECURITY.md#ecmascript-apis	WEBGL,WebGL,GraphicsContextGL
 webgl2	WebGL2 API	removed	SECURITY.md#ecmascript-apis	WEBGL2,WebGL2
-webrtc	WebRTC API	removed	SECURITY.md#ecmascript-apis	WEB_RTC,WebRTC,RTCPeerConnection,RTCDataChannel
+webrtc	WebRTC API	removed	SECURITY.md#ecmascript-apis	WEB_RTC,WebRTC,RTCPeerConnection,RTCDataChannel,RTCRtpScriptTransform,RTCRtpScriptTransformer,RTCNetwork,RTCPacketOptions,RTCDataChannelHandlerMock,RTCNotifiersMock,TimerEventBasedMock
 webxr	WebXR API	removed	SECURITY.md#ecmascript-apis	WEBXR,WebXR,XRSession
 wireless-playback	Wireless Playback Target API	removed	SECURITY.md#target-platforms	WIRELESS_PLAYBACK_TARGET,RemotePlayback,PlaybackTarget
