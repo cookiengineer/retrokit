@@ -2,80 +2,62 @@
 
 Last updated: 2026-11-17
 
-## 0. Immediate priorities — media capture / WebRTC WIP
+## 0. Immediate priorities — media stack
 
-**Status:** media capture, media streams, WebRTC and MediaRecorder were removed
-in commit `72ba05388` (`:unicorn: Remove Media Capture, Media Streams and
-WebRTC`). The Debian GTK build completed successfully (WebKit + MiniBrowser) before
-the final scripted guard cleanup, which has not been recompiled. The feature
-is **not finished**: the verification gates and equivalence cleanup below are
-still open.
+**Status:** Web Speech is removal-complete and verified. Media capture is
+committed as work in progress; WebRTC and Media Recorder are still pending.
+
+Last verified state: commit `26b377906` (Web Speech) for `equivalence` and
+`leaks`. The media capture commit `12ea622f2` has **not** been built to
+completion. The maintainer stopped the Debian build after a clean rebuild
+exposed a long chain of leftovers from `72ba05388` (stub SampleBuffer files,
+orphaned generated bindings, RICE). Treat the tree as unverified until the
+gates below pass.
 
 Do these first, in order:
 
-1. **Re-run the build gates.**
-   - `make smoke DISTRO=debian` (the build is green; smoke was interrupted).
-   - `make build DISTRO=archlinux && make smoke DISTRO=archlinux`.
-   - Expect GTK-only failures; no other port is targeted.
-
-2. **Clear the equivalence backlog.** Current state:
-   - `media-capture`: 186 errors
-   - `webrtc`: 27 errors
-   - `media-recorder`: 4 errors
-   The remaining hits are mostly compatibility shims intentionally left to keep
-   the tree building. Remove them, then re-run `equivalence` until all three
-   features report 0 errors:
-   - `Source/WebKit/UIProcess/API/C/WKPreferences.cpp` — 54 capture/WebRTC
-     preference getters/setters.
-   - GTK `WebKitSettings` properties `enable-media-stream`,
-     `enable-mock-capture-devices`, `enable-webrtc`, plus
-     `webkitSettingsSetMediaCaptureRequiresSecureConnection` and
-     `webkitSettingsSetGetUserMediaRequiresFocus`.
-   - `WebProcessProxy.h` capture-state helpers, `MediaProducer.h` capture
-     state, `APIUIClient.h` user-media/screen-capture callbacks,
-     `PermissionName.h` media permission names.
-   - `AudioContext.h` MediaStream node factories, `APIProcessPoolConfiguration.h`
-     and `WKContextConfigurationRef.cpp` capture-in-GPU options,
-     `WKOpenPanelParametersRef.cpp` capture flag,
-     `WebKitDOMDeprecated.cpp` / `WebKitDOMHTMLInputElement.cpp`
-     `capture` attribute, and `HTMLInputElement.idl`.
-   - Remove the no-op preference entries that were re-added only to keep the
-     settings APIs compiling: `MediaDevicesEnabled`, `PeerConnectionEnabled`,
-     `MockCaptureDevicesEnabled`, `ICECandidateFilteringEnabled`,
-     `MediaCaptureRequiresSecureConnection`, `GetUserMediaRequiresFocus`,
-     `WebRTCPlatformCodecsInGPUProcessEnabled`.
-
-3. **Strip residual guards.** Current leak scans:
-   - `media-capture`: 121 occurrences
-   - `webrtc`: 151 occurrences
-   - `media-recorder`: 9 occurrences
-   Most are `#if ENABLE(MEDIA_STREAM)` / `ENABLE(WEB_RTC)` blocks that survived
-   because they had an `#else`/`#elif`. Remove them manually; also clean
-   `EventInterfaces.in`, `EventTargetFactory.in`, `WebCoreBuiltinNames.h` and
-   the inspector `Page.json` settings. Re-run `leaks` for all three features.
-
-4. **Curate the manifest.**
-   - Add per-file rows for the 734 first-party deletions and for
-     `Source/ThirdParty/libwebrtc` (19,510 files).
-   - Add rows for the new 2.54-only media/WebRTC files that were deleted.
-   - Attribute the shared `mediastream` files correctly: `media-capture`,
-     `webrtc` and `media-recorder` currently overlap because the old fork
-     removed them in adjacent commits.
-
-5. **Refresh the docs and commit.** Move media capture, WebRTC and media
-   recorder to the completed list only after steps 1–4 pass. Update
-   `TODO.md`, `MIGRATION.md`, `SECURITY.md` and the manifest row count.
+1. **Finish the build.** A clean `make build DISTRO=debian` was interrupted
+   during WebCore. Fixes already applied but not confirmed by a full build:
+   - restored the retained `SampleBufferDisplayLayer` files from
+     `vendor/2.54.2` (the first media commit had left them as license-only
+     stubs, which broke the IPC generator),
+   - removed the orphaned `JSBlobEvent` and media-recorder event/builtin rows,
+   - removed the orphaned `JSMediaStream*` and `JS RTC*` binding includes,
+   - disabled `USE_LIBRICE` for GTK (RICE lives in the deleted
+     `Modules/mediastream` tree).
+   Continue until WebKit + MiniBrowser build, then run
+   `make smoke DISTRO=debian` and the archlinux equivalents.
+2. **Close the media-capture leak backlog.** `equivalence` is 0 errors
+   (11 stale-path warnings). `leaks` still reports 107 occurrences, mostly
+   Cocoa/iOS capture API and capture plumbing that the GTK build does not
+   compile: WKWebView/UIDelegate capture state, AVFoundation capture soft
+   links, MediaCapabilities display capture and the `PageClient` capture
+   callbacks.
+3. **Remove WebRTC.** 14 equivalence errors and 222 leak occurrences remain:
+   mock RTC handlers, `RTCNetwork`/`RTCPacketOptions`, worker
+   `RTCRtpScriptTransformer`, `createRTCProvider`, `MessageSource::WebRTC`,
+   inspector RTC models and `NativeFunctionParameters`.
+4. **Remove Media Recorder.** 0 equivalence errors, 5 leak occurrences:
+   `ENABLE(MEDIA_RECORDER)` guards in `Quirks.cpp` and
+   `AudioSampleBufferConverter`, the `Internals` recorder hook and one WebM
+   preference description.
+5. **Curate the manifest** for the media capture, recorder and WebRTC
+   deletions (the 734 first-party deletions, the 2.54-only files and
+   `Source/ThirdParty/libwebrtc`), then refresh the docs.
 
 Important invariants for the remaining work:
 
 - Keep `SharedVideoFrame`, `SharedVideoFrameInfo`, `SampleBufferDisplayLayer*`
   and `RemoteVideoFrameObjectHeapProxy*`; WebGL, WebGPU and media playback use
   them even though they live under `GPUProcess/webrtc` and
-  `WebProcess/GPU/webrtc`.
+  `WebProcess/GPU/webrtc`. The SampleBuffer files are now real vendor files
+  and are recorded as `retained`, not `removed`.
+- Keep `WebCore::WebAudioSourceProvider` and the
+  `AudioContext::shouldOverrideBackgroundPlaybackRestriction` override:
+  the former is shared with media playback to WebAudio, the latter is pure
+  virtual on `PlatformMediaSessionInterface` in 2.54. Both are `retained`.
 - Do not restore `Source/ThirdParty/libwebrtc` or anything under
   `Modules/mediastream` / `platform/mediastream`.
-- The no-op preference names above are temporary and must not survive the
-  cleanup.
 
 ## 1. Where we are
 
@@ -118,6 +100,12 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+12ea622f2 Remove the media capture API and capture state (WIP, unverified)
+710c69364 Drop the last Web Speech build and inspector references
+26b377906 Remove the Web Speech API
+c4d8247de Drop Xcode-only file lists and their check scripts
+979627c1c Curate the media-stack manifest rows
+925215eff Add retained invariants to upstreamcheck
 9e068a359 Remove PlayStation Platform Support
 0d478784d Remove Legacy Custom Protocol Manager
 878ecebe4 Remove Web API Statistics
@@ -164,7 +152,10 @@ Completed removal features on `migrate/2.54`:
 WebXR · SystemD/journald · Touch Bar · FTP · Gamepad
 Device Motion/Orientation · Geolocation · libsecret · Media Usage
 Web API Statistics · Legacy Custom Protocol · PlayStation platform
+Web Speech
 ```
+
+Work in progress: media capture (unverified build), WebRTC, media recorder.
 
 `libnotify` was already absent upstream; its stale documentation references and
 the misattributed manifest rows were cleaned up during the libsecret work.
@@ -183,6 +174,11 @@ Build it with:
 cd Helpers/upstreamcheck
 go build -o upstreamcheck ./cmd/upstreamcheck
 ```
+
+Dispositions: `removed` entries must be absent; `retained` entries must still
+exist. `retained` records intentional keeps inside a removed feature (for
+example the SampleBuffer files used by media playback, WebGL and WebGPU), so a
+later cleanup cannot delete them by accident.
 
 Main commands:
 
@@ -237,7 +233,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **10,368 rows across 39 features**. The manifest covers
+It currently contains **10,422 rows across 40 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for all completed features through Media Usage.
 
@@ -601,6 +597,60 @@ The three warnings are 2.34.1 manifest paths that no longer exist upstream
 (`SharedMemoryUnix.cpp`, `WebInspectorClient.cpp`, `bmalloc/Scavenger.cpp`).
 They are informational.
 
+### Web Speech
+
+Commit: `26b377906 Remove the Web Speech API`
+(plus `710c69364` for the last build/inspector references)
+
+Removed:
+
+- WebCore `Modules/speech` (recognition, synthesis, Cocoa recognizer), the
+  page speech providers and clients, `PlatformSpeechSynthesizer` with its
+  Cocoa/GStreamer/Spiel/mock implementations, and the Flite GStreamer source.
+- WebKit UI-process speech servers and Web-process speech clients, permission
+  manager, IPC, `MediaPermissionUtilities` speech paths, the
+  `ScriptTrackingPrivacyCategory::Speech` entry and the Cocoa/WebKitLegacy
+  speech preferences.
+- `ENABLE_SPEECH_SYNTHESIS`, `USE_FLITE`/`USE_SPIEL`, `FindFlite`,
+  `FindLibSpiel`, the port defaults and the Makefile flag.
+- The AVFoundation speech soft links and the event/builtin entries.
+
+Retained: accessibility `AXSpeechManager` and CSS `speak-as`, which are not
+part of the Web Speech API. `HTMLCanvasElement::toVideoFrame` was restored
+under `ENABLE(WEB_CODECS)`; the scripted media cleanup had deleted it while
+`WebCodecsVideoFrame` still needs it.
+
+Verification:
+
+```text
+equivalence --feature web-speech: 233 entries, 0 errors, 0 warnings
+leaks       --feature web-speech: 0 residual occurrences
+```
+
+### Media Capture (work in progress)
+
+Commit: `12ea622f2 Remove the media capture API and capture state`
+
+This commit is **not verified**. It removes the permission names, capture
+preferences, `WKPreferences` no-ops, GLib settings and WebView capture-state
+API, `MediaProducer` capture bits, capture mute/assertion plumbing,
+display-capture capabilities and the remaining capture sources, and restores
+the retained SampleBuffer files from vendor. See section 0 for the remaining
+work and section 6 for the unverified build state.
+
+Current checks:
+
+```text
+equivalence --feature media-capture: 1301 entries, 0 errors, 11 warnings
+leaks       --feature media-capture: 107 residual occurrences (Cocoa/iOS)
+equivalence --feature webrtc:         397 entries, 14 errors
+leaks       --feature webrtc:         222 residual occurrences
+equivalence --feature media-recorder:  74 entries, 0 errors
+leaks       --feature media-recorder:   5 residual occurrences
+```
+
+The warnings are stale 2.34.1 paths that no longer exist in 2.54.
+
 ### Tooling fix
 
 Commit: `21a5fb388 Fix upstreamcheck preprocessor and build_ref scanning`
@@ -612,12 +662,11 @@ Commit: `21a5fb388 Fix upstreamcheck preprocessor and build_ref scanning`
 
 ## 5. Next steps
 
-### Next: the media stack
+### Next: finish the media stack
 
-Web API Statistics, the legacy custom protocol manager and PlayStation platform
-support are done. The remaining work starts with the media stack (capture,
-streams, recorder, EME, PiP/fullscreen), then the smaller API and behaviour
-removals.
+Web Speech is done. Finish, in order: the unverified capture commit (build
+gates, Cocoa capture leaks), WebRTC (14 errors, 222 leaks), Media Recorder
+(5 leaks), then the manifest curation for those deletions.
 
 - Do not resurrect geolocation/media-usage/media-statistics permission or
   reporting plumbing when removing other APIs.
@@ -629,11 +678,12 @@ with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
 
 Suggested order:
 
-1. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-2. Media statistics, payment and wireless playback.
-3. Automation, WebDriver, quirks and user-agent quirks.
-4. Remaining build/behaviour fixes.
-5. WebGL (largest, last).
+1. Media capture build + leak cleanup, WebRTC, Media Recorder.
+2. Encrypted media, payment and fullscreen/PiP.
+3. Media statistics, wireless playback.
+4. Automation, WebDriver, quirks and user-agent quirks.
+5. Remaining build/behaviour fixes.
+6. WebGL (largest, last).
 
 ### Curation
 
@@ -663,21 +713,19 @@ cmake -DPORT=GTK -DCMAKE_BUILD_TYPE=Release \
   -GNinja
 ```
 
-The Debian container has been rebuilt and smoke-tested after every completed
-feature through PlayStation platform removal:
+The last fully verified container builds are from the PlayStation platform
+removal. The Web Speech and media capture commits have **not** been built to
+completion:
 
 ```text
-make build DISTRO=debian     -> success (WebKit + MiniBrowser)
-make smoke DISTRO=debian     -> success (MiniBrowser --help under Xvfb)
+make build DISTRO=debian     -> interrupted during WebCore (maintainer stop)
+make smoke DISTRO=debian     -> not run for the current tree
+make build DISTRO=archlinux  -> not run for the current tree
 ```
 
-The Arch Linux container was fully revalidated after the PlayStation platform
-removal, which touched shared WTF, WebCore, WebKit and bmalloc/libpas code:
-
-```text
-make build DISTRO=archlinux  -> success (WebKit + MiniBrowser)
-make smoke DISTRO=archlinux  -> success (MiniBrowser --help under Xvfb)
-```
+The Arch Linux container was last fully revalidated after the PlayStation
+platform removal. It has not been rebuilt for the Web Speech or media capture
+changes.
 
 The host itself does not need Ruby because the build runs inside the
 containers. Both images have been validated by a full end-to-end compile.
@@ -779,6 +827,9 @@ podman info --format '{{.Host.Security.Rootless}}'
   pending feature in `SECURITY.md`/`TODO.md`.
 - Historical `NEWS`, Xcode project metadata and third-party code are excluded
   from leak scans.
+- The media capture commit (`12ea622f2`) is unverified. Several genuine build
+  breaks from `72ba05388` were only exposed by a clean rebuild and were fixed
+  in that commit, but no full build has confirmed the tree yet.
 
 ## 9. Key references
 
