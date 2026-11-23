@@ -5,6 +5,7 @@ import (
 
 	"github.com/cookiengineer/retrokit/Helpers/upstreamcheck/internal/gitx"
 	"github.com/cookiengineer/retrokit/Helpers/upstreamcheck/internal/index"
+	"github.com/cookiengineer/retrokit/Helpers/upstreamcheck/internal/manifest"
 )
 
 func TestCoveragePaths(t *testing.T) {
@@ -64,5 +65,33 @@ func TestLineEntryPresent(t *testing.T) {
 	}
 	if lineEntryPresent("flag", lines, "networkprocess/customprotocols/cocoa/legacycustomprotocolmanagercocoa.mm") {
 		t.Error("non build_ref entries must match exactly")
+	}
+}
+
+func TestRetainedIssue(t *testing.T) {
+	file := &manifest.Entry{Kind: "file", Path: "Source/WebKit/WebProcess/GPU/webrtc/SampleBufferDisplayLayer.cpp"}
+	if issue := retainedIssue(file, false, index.FileIndex{}, false, "HEAD"); issue == nil {
+		t.Fatal("missing retained file was not reported")
+	}
+	if issue := retainedIssue(file, true, index.FileIndex{}, false, "HEAD"); issue != nil {
+		t.Fatalf("present retained file reported as missing: %v", issue.Message)
+	}
+
+	symbol := &manifest.Entry{Kind: "class", Symbol: "WebKit::SampleBufferDisplayLayer", Path: "Source/A.h"}
+	idx := index.FileIndex{Symbols: []index.Symbol{{Name: "WebKit::SampleBufferDisplayLayer"}}}
+	if issue := retainedIssue(symbol, true, idx, true, "HEAD"); issue != nil {
+		t.Fatalf("present retained symbol reported as missing: %v", issue.Message)
+	}
+	if issue := retainedIssue(symbol, true, index.FileIndex{}, true, "HEAD"); issue == nil {
+		t.Fatal("missing retained symbol was not reported")
+	}
+
+	buildRef := &manifest.Entry{Kind: "build_ref", Symbol: "WebProcess/GPU/webrtc/SampleBufferDisplayLayer.cpp", Path: "Source/WebKit/Sources.txt"}
+	buildIdx := index.FileIndex{Lines: []index.Line{{Number: 1, Text: "WebProcess/GPU/webrtc/SampleBufferDisplayLayer.cpp"}}}
+	if issue := retainedIssue(buildRef, true, buildIdx, true, "HEAD"); issue != nil {
+		t.Fatalf("present retained build_ref reported as missing: %v", issue.Message)
+	}
+	if issue := retainedIssue(buildRef, true, index.FileIndex{}, true, "HEAD"); issue == nil {
+		t.Fatal("missing retained build_ref was not reported")
 	}
 }

@@ -217,6 +217,17 @@ func Lint(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*LintRe
 				Entry:   entry,
 			})
 		}
+		if entry.Disposition == "retained" {
+			exists := repo.FileExistsAt(forkRef, entry.Path)
+			idx, indexed := index.FileIndex{}, false
+			if exists && entry.Kind != "file" {
+				idx, indexed = getIndex(entry.Path)
+			}
+			if issue := retainedIssue(entry, exists, idx, indexed, forkRef); issue != nil {
+				result.Errors = append(result.Errors, *issue)
+			}
+			continue
+		}
 		if entry.Disposition != "removed" {
 			continue
 		}
@@ -348,6 +359,9 @@ func Plan(repo *gitx.Repo, cfg *config.Config, baseRef, targetRef string) (*Plan
 		case "added", "modified":
 			plan.Status = "manual"
 			plan.Detail = "behavioral or additive change; review target diff"
+		case "retained":
+			plan.Status = "done"
+			plan.Detail = "intentionally retained"
 		default:
 			plan.Status = "manual"
 			plan.Detail = "unknown disposition"
@@ -443,6 +457,36 @@ func containsSymbol(symbols []index.Symbol, name string) bool {
 		}
 	}
 	return false
+}
+
+// retainedIssue reports whether a `retained` manifest entry is missing from the
+// tree under test. Retained rows are positive invariants, so they fail when the
+// file, build line or symbol disappears. Returns nil when the entry is present.
+func retainedIssue(entry *manifest.Entry, exists bool, idx index.FileIndex, indexed bool, ref string) *LintIssue {
+	if !exists {
+		return &LintIssue{
+			Kind:    "retained-missing",
+			Message: fmt.Sprintf("%s should be retained but is absent in %s", entry.Path, ref),
+			Entry:   entry,
+		}
+	}
+	if entry.Kind == "file" || !indexed {
+		return nil
+	}
+	present := false
+	if entry.Kind == "build_ref" || entry.Kind == "flag" || entry.Kind == "pref" || entry.Kind == "config_line" {
+		present = lineEntryPresent(entry.Kind, index.LinesSet(idx.Lines), entry.Symbol)
+	} else {
+		present = containsSymbol(idx.Symbols, entry.Symbol)
+	}
+	if present {
+		return nil
+	}
+	return &LintIssue{
+		Kind:    "retained-missing",
+		Message: fmt.Sprintf("%s should be retained but is absent in %s", entry.Symbol, entry.Path),
+		Entry:   entry,
+	}
 }
 
 // lineEntryPresent reports whether a build/config line recorded in the manifest

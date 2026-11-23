@@ -58,7 +58,14 @@ feature  kind  symbol  path  disposition  scope  origin  notes
 
 - `kind`: `file`, `class`, `struct`, `method`, `function`, `field`, `enum`,
   `interface`, `idl_member`, `build_ref`, `flag`, `pref`, `behavior`, ...
-- `disposition`: `removed`, `modified`, `added`.
+- `disposition`:
+  - `removed`: must be gone from the fork; a reappearing file or symbol is an
+    error.
+  - `retained`: must still be present; it records an intentional keep inside an
+    otherwise removed feature (for example the `SampleBufferDisplayLayer` files
+    that media playback, WebGL and WebGPU depend on). A missing file or symbol
+    is an error, so a later cleanup cannot delete it by accident.
+  - `modified`, `added`: behavioural or additive divergence, reviewed by hand.
 - `scope`: `source`, `tools`, `vendor-root`, `downstream`, `docs`.
 - `origin`: the fork commit that last touched the entry.
 

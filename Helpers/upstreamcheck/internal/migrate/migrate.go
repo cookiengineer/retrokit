@@ -145,6 +145,9 @@ func Generate(repo *gitx.Repo, cfg *config.Config, baseRef, targetRef, feature, 
 			}
 		case "added", "modified":
 			result.Manual = append(result.Manual, fmt.Sprintf("%s %s in %s (%s)", entry.Kind, entry.Symbol, entry.Path, entry.Origin))
+		case "retained":
+			// Retained entries are invariants, not migration work.
+			continue
 		default:
 			result.Manual = append(result.Manual, fmt.Sprintf("%s %s in %s", entry.Kind, entry.Symbol, entry.Path))
 		}

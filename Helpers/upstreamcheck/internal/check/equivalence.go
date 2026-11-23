@@ -77,6 +77,19 @@ func Equivalence(repo *gitx.Repo, cfg *config.Config, forkRef, onlyFeature strin
 				})
 			}
 
+		case "retained":
+			// Retained entries are positive invariants: the file or symbol
+			// must still exist. They record intentional keeps that depend on
+			// an otherwise removed feature, so a careless cleanup that deletes
+			// them is reported instead of silently breaking the build.
+			idx, indexed := index.FileIndex{}, false
+			if exists && entry.Kind != "file" {
+				idx, indexed = getIndex(entry.Path)
+			}
+			if issue := retainedIssue(entry, exists, idx, indexed, forkRef); issue != nil {
+				result.Errors = append(result.Errors, *issue)
+			}
+
 		case "added":
 			if entry.Kind == "file" && !exists {
 				result.Warnings = append(result.Warnings, LintIssue{
