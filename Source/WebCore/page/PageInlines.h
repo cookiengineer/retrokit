@@ -36,11 +36,6 @@ inline bool Page::isAudioMuted() const
     return m_mutedState.contains(MediaProducerMutedState::AudioIsMuted);
 }
 
-inline bool Page::isMediaCaptureMuted() const
-{
-    return m_mutedState.containsAny(MediaProducer::MediaStreamCaptureIsMuted);
-}
-
 inline KeyboardScrollingAnimator* Page::currentKeyboardScrollingAnimator() const
 {
     return m_currentKeyboardScrollingAnimator.get();

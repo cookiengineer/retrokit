@@ -79,7 +79,6 @@ crypto/commoncrypto/CryptoDigestCommonCrypto.cpp
 mac/DataDetectorsSoftLink.mm @nonARC
 mac/LookupSoftLink.mm @nonARC
 mac/QuickLookUISoftLink.mm @nonARC
-mac/ScreenCaptureKitSoftLink.mm @nonARC
 
 spi/cocoa/AccessibilitySupportSoftLink.cpp
 

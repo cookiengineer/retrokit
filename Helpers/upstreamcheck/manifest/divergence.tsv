@@ -3307,7 +3307,7 @@ media-capture	class	WebCore::MediaStream	Source/WebCore/Modules/webaudio/AudioCo
 media-capture	class	WebCore::MediaStreamAudioDestinationNode	Source/WebCore/Modules/webaudio/AudioContext.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=41
 media-capture	class	WebCore::MediaStreamAudioSourceNode	Source/WebCore/Modules/webaudio/AudioContext.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=42
 media-capture	file	-	Source/WebCore/Modules/webaudio/AudioContext.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
-media-capture	method	WebCore::AudioContext::shouldOverrideBackgroundPlaybackRestriction	Source/WebCore/Modules/webaudio/AudioContext.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=130
+media-capture	method	WebCore::AudioContext::shouldOverrideBackgroundPlaybackRestriction	Source/WebCore/Modules/webaudio/AudioContext.h	retained	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	pure virtual on PlatformMediaSessionInterface in 2.54; keep the override
 media-capture	file	-	Source/WebCore/Modules/webaudio/AudioContext.idl	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/Modules/webaudio/AudioNode.cpp	modified	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	origin=b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b :bug: Fixes
 media-capture	file	-	Source/WebCore/Modules/webaudio/AudioNode.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
@@ -3323,6 +3323,8 @@ media-capture	file	-	Source/WebCore/Modules/webaudio/MediaStreamAudioSourceNode.
 media-capture	file	-	Source/WebCore/Modules/webaudio/MediaStreamAudioSourceNode.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/Modules/webaudio/MediaStreamAudioSourceOptions.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/Modules/webaudio/MediaStreamAudioSourceOptions.idl	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+media-capture	file	-	Source/WebCore/PAL/pal/mac/ScreenCaptureKitSoftLink.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebCore/PAL/pal/mac/ScreenCaptureKitSoftLink.mm	removed	source	curated	capture stack removal
 media-capture	build_ref	JSCanvasCaptureMediaStreamTrack.cpp	Source/WebCore/Sources.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=2639; commit=6481ecc73953
 media-capture	build_ref	JSMediaDevices.cpp	Source/WebCore/Sources.txt	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=2911; commit=b5f9982ac10e
 media-capture	build_ref	JSMediaStream.cpp	Source/WebCore/Sources.txt	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=2986; commit=6481ecc73953
@@ -3494,6 +3496,7 @@ media-capture	file	-	Source/WebCore/html/HTMLMediaElement+AudioOutput.idl	remove
 media-capture	file	-	Source/WebCore/inspector/InspectorClient.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/inspector/agents/InspectorPageAgent.cpp	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/page/ActivityState.cpp	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+media-capture	enum_value	WebCore::ActivityState::IsCapturingMedia	Source/WebCore/page/ActivityState.h	removed	source	curated	capture stack removal
 media-capture	file	-	Source/WebCore/page/ActivityState.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	field	WebCore::MediaProducer::ActiveCaptureMask	Source/WebCore/page/MediaProducer.h	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=64
 media-capture	field	WebCore::MediaProducer::AudioAndVideoCaptureIsMuted	Source/WebCore/page/MediaProducer.h	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=86
@@ -3582,6 +3585,8 @@ media-capture	file	-	Source/WebCore/platform/audio/gstreamer/AudioSourceProvider
 media-capture	file	-	Source/WebCore/platform/audio/gstreamer/AudioSourceProviderGStreamer.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/platform/graphics/RemoteVideoSample.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/platform/graphics/RemoteVideoSample.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+media-capture	file	-	Source/WebCore/platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebCore/platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.mm	removed	source	curated	capture stack removal
 media-capture	class	WebCore::RemoteVideoSample	Source/WebCore/platform/graphics/cv/ImageTransferSessionVT.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=41
 media-capture	file	-	Source/WebCore/platform/graphics/cv/ImageTransferSessionVT.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebCore/platform/graphics/gstreamer/GStreamerCommon.cpp	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
@@ -3771,6 +3776,7 @@ media-capture	flag	if (ENABLE_MEDIA_STREAM)	Source/WebKit/PlatformGTK.cmake	remo
 media-capture	file	-	Source/WebKit/Scripts/PreferencesTemplates/WebPreferencesStoreDefaultsMap.cpp.erb	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/Scripts/process-entitlements.sh	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/Shared/API/c/WKBase.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+media-capture	typedef	WKUserMediaPermissionRequestRef	Source/WebKit/Shared/API/c/WKBase.h	removed	source	curated	capture stack removal
 media-capture	file	-	Source/WebKit/Shared/WebProcessCreationParameters.cpp	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/Shared/WebProcessCreationParameters.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	build_ref	RemoteAudioMediaStreamTrackRendererInternalUnitManagerMessageReceiver.cpp	Source/WebKit/Sources.txt	removed	source	dc6c0a73b26a6e26c3a8ea0149d6bbb05e2226c4	line=644; commit=dc6c0a73b26a
@@ -3822,6 +3828,8 @@ media-capture	function	WKPageIsMockRealtimeMediaSourceCenterEnabled	Source/WebKi
 media-capture	function	WKPageSetMediaCaptureEnabled	Source/WebKit/UIProcess/API/C/WKPage.cpp	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	function	WKPageSetMediaCaptureReportingDelayForTesting	Source/WebKit/UIProcess/API/C/WKPage.cpp	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	function	WKPageSetMockCameraOrientationForTesting	Source/WebKit/UIProcess/API/C/WKPage.cpp	removed	source	curated	2.54 capture surface; recorded during media migration
+media-capture	function	WKPageSetMockCaptureDevicesInterrupted	Source/WebKit/UIProcess/API/C/WKPage.cpp	removed	source	curated	capture stack removal
+media-capture	function	WKPageTriggerMockCaptureConfigurationChange	Source/WebKit/UIProcess/API/C/WKPage.cpp	removed	source	curated	capture stack removal
 media-capture	enum_value	kWKMediaCaptureDevicesMuted	Source/WebKit/UIProcess/API/C/WKPagePrivate.h	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	function	WKPageClearUserMediaState	Source/WebKit/UIProcess/API/C/WKPagePrivate.h	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	function	WKPageGetMediaCaptureEnabled	Source/WebKit/UIProcess/API/C/WKPagePrivate.h	removed	source	curated	2.54 capture surface; recorded during media migration
@@ -3836,6 +3844,7 @@ media-capture	function	WKPreferencesGetCaptureAudioInUIProcessEnabled	Source/Web
 media-capture	function	WKPreferencesGetCaptureVideoInGPUProcessEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=2034
 media-capture	function	WKPreferencesGetCaptureVideoInUIProcessEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=2024
 media-capture	function	WKPreferencesGetExposeSpeakersEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1784
+media-capture	function	WKPreferencesGetGetUserMediaRequiresFocus	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	curated	capture stack removal
 media-capture	function	WKPreferencesGetMediaCaptureRequiresSecureConnection	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1574
 media-capture	function	WKPreferencesGetMediaDevicesEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1323
 media-capture	function	WKPreferencesGetMediaStreamEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1333
@@ -3845,6 +3854,7 @@ media-capture	function	WKPreferencesSetCaptureAudioInUIProcessEnabled	Source/Web
 media-capture	function	WKPreferencesSetCaptureVideoInGPUProcessEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=2029
 media-capture	function	WKPreferencesSetCaptureVideoInUIProcessEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=2019
 media-capture	function	WKPreferencesSetExposeSpeakersEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1779
+media-capture	function	WKPreferencesSetGetUserMediaRequiresFocus	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	curated	capture stack removal
 media-capture	function	WKPreferencesSetMediaCaptureRequiresSecureConnection	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1569
 media-capture	function	WKPreferencesSetMediaDevicesEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1318
 media-capture	function	WKPreferencesSetMediaStreamEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=1328
@@ -3882,6 +3892,10 @@ media-capture	file	-	Source/WebKit/UIProcess/API/gtk/WebKitDeviceInfoPermissionR
 media-capture	file	-	Source/WebKit/UIProcess/API/gtk/WebKitSettings.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/UIProcess/API/gtk/WebKitUserMediaPermissionRequest.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	config_line	"GetUserMedia"	Source/WebKit/UIProcess/Automation/Automation.json	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=273; commit=6481ecc73953
+media-capture	file	-	Source/WebKit/UIProcess/Cocoa/DisplayCaptureSessionManager.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/UIProcess/Cocoa/DisplayCaptureSessionManager.mm	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/UIProcess/Cocoa/MediaUtilities.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/UIProcess/Cocoa/MediaUtilities.mm	removed	source	curated	capture stack removal
 media-capture	file	-	Source/WebKit/UIProcess/DeviceIdHashSaltStorage.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/UIProcess/GPU/GPUProcessProxy.cpp	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/UIProcess/GPU/GPUProcessProxy.h	modified	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
@@ -3894,6 +3908,16 @@ media-capture	file	-	Source/WebKit/UIProcess/UserMediaPermissionRequestProxy.cpp
 media-capture	file	-	Source/WebKit/UIProcess/UserMediaPermissionRequestProxy.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/UIProcess/UserMediaProcessManager.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/UIProcess/UserMediaProcessManager.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+media-capture	method	WebKit::WebPageProxy::activateMediaStreamCaptureInPage	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::dropCapturingActivity	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::dropMutedCaptureAssertion	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::hasValidCapturingActivity	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::hasValidMutedCaptureAssertion	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::isConnectedToHardwareConsoleDidChange	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::isMediaStreamCaptureMuted	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::setMediaStreamCaptureMuted	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::takeCapturingActivity	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebPageProxy::takeMutedCaptureAssertion	Source/WebKit/UIProcess/WebPageProxy.cpp	removed	source	curated	capture stack removal
 media-capture	method	WebKit::WebPageProxy::clearUserMediaState	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	method	WebKit::WebPageProxy::isCapturingAudio	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	method	WebKit::WebPageProxy::isCapturingVideo	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	curated	2.54 capture surface; recorded during media migration
@@ -3911,7 +3935,12 @@ media-capture	config_line	Speak(String string)	Source/WebKit/UIProcess/WebPagePr
 media-capture	config_line	StopSpeaking()	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=314; commit=6481ecc73953
 media-capture	field	WebKit::WebPageProxyInternals::reportedMediaCaptureState	Source/WebKit/UIProcess/WebPageProxyInternals.h	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	field	WebKit::WebPageProxyInternals::updateReportedMediaCaptureStateTimer	Source/WebKit/UIProcess/WebPageProxyInternals.h	removed	source	curated	2.54 capture surface; recorded during media migration
+media-capture	method	WebKit::WebProcessActivityState::dropCapturingActivity	Source/WebKit/UIProcess/WebProcessActivityState.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebProcessActivityState::hasValidCapturingActivity	Source/WebKit/UIProcess/WebProcessActivityState.cpp	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebProcessActivityState::takeCapturingActivity	Source/WebKit/UIProcess/WebProcessActivityState.cpp	removed	source	curated	capture stack removal
 media-capture	field	WebKit::WebProcessActivityState::m_isCapturingActivity	Source/WebKit/UIProcess/WebProcessActivityState.h	removed	source	curated	2.54 capture surface; recorded during media migration
+media-capture	field	WebKit::WebProcessActivityState::m_isMutedCaptureAssertion	Source/WebKit/UIProcess/WebProcessActivityState.h	removed	source	curated	capture stack removal
+media-capture	function	WebKit::WebProcessProxy::audioCapturingWebPage	Source/WebKit/UIProcess/WebProcessProxy.cpp	removed	source	curated	capture stack removal
 media-capture	class	WebKit::UserMediaCaptureManagerProxy	Source/WebKit/UIProcess/WebProcessProxy.h	removed	source	8fcc1f032fa84fb4e5232ef2584d534f36be63bc	line=92
 media-capture	field	WebKit::WebProcessProxy::m_mediaCaptureSandboxExtensions	Source/WebKit/UIProcess/WebProcessProxy.h	removed	source	curated	2.54 capture surface; recorded during media migration
 media-capture	method	WebKit::WebProcessProxy::grantAudioCaptureExtension	Source/WebKit/UIProcess/WebProcessProxy.h	removed	source	curated	2.54 capture surface; recorded during media migration
@@ -3948,6 +3977,8 @@ media-capture	file	-	Source/WebKit/WebProcess/MediaStream/UserMediaPermissionReq
 media-capture	file	-	Source/WebKit/WebProcess/MediaStream/UserMediaPermissionRequestManager.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebUserMediaClient.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebUserMediaClient.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
+media-capture	method	WebKit::WebProcess::setDisplayCaptureEnvironment	Source/WebKit/WebProcess/WebPage/Cocoa/WebPageCocoa.mm	removed	source	curated	capture stack removal
+media-capture	method	WebKit::WebProcess::setScreenIsBeingCaptured	Source/WebKit/WebProcess/WebPage/Cocoa/WebPageCocoa.mm	removed	source	curated	capture stack removal
 media-capture	config_line	BoundaryEventOccurred(bool wordBoundary, unsigned charIndex)	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=557; commit=6481ecc73953
 media-capture	config_line	CaptureDevicesChanged()	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=376; commit=6481ecc73953
 media-capture	config_line	SpeakingErrorOccurred()	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=556; commit=6481ecc73953
@@ -3961,6 +3992,18 @@ media-capture	config_line	GrantUserMediaDeviceSandboxExtensions(WebKit::MediaDev
 media-capture	config_line	RemoveMockMediaDevice(String persistentId);	Source/WebKit/WebProcess/WebProcess.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=136; commit=6481ecc73953
 media-capture	config_line	ResetMockMediaDevices();	Source/WebKit/WebProcess/WebProcess.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=137; commit=6481ecc73953
 media-capture	config_line	RevokeUserMediaDeviceSandboxExtensions(Vector<String> sandboxExtensionIDs)	Source/WebKit/WebProcess/WebProcess.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	line=141; commit=6481ecc73953
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteCaptureSampleManager.cpp	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteCaptureSampleManager.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteCaptureSampleManager.messages.in	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeAudioSource.cpp	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeAudioSource.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeMediaSource.cpp	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeMediaSource.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeMediaSourceInlines.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeMediaSourceProxy.cpp	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeMediaSourceProxy.h	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeVideoSource.cpp	removed	source	curated	capture stack removal
+media-capture	file	-	Source/WebKit/WebProcess/cocoa/RemoteRealtimeVideoSource.h	removed	source	curated	capture stack removal
 media-capture	file	-	Source/WebKit/WebProcess/glib/UserMediaCaptureManager.cpp	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/WebProcess/glib/UserMediaCaptureManager.h	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API
 media-capture	file	-	Source/WebKit/WebProcess/glib/UserMediaCaptureManager.messages.in	removed	source	6481ecc7395375c108e620d3b5c0db9b1cf4a5dd	origin=6481ecc7395375c108e620d3b5c0db9b1cf4a5dd :unicorn: Remove Media Capture and Media Streams API

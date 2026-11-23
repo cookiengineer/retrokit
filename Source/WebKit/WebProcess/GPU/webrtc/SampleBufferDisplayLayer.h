@@ -25,3 +25,74 @@
 
 #pragma once
 
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+
+#include "GPUProcessConnection.h"
+#include "MessageReceiver.h"
+#include "SampleBufferDisplayLayerIdentifier.h"
+#include "SharedVideoFrame.h"
+#include <WebCore/SampleBufferDisplayLayer.h>
+#include <wtf/Identified.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+enum class VideoFrameRotation : uint16_t;
+}
+
+namespace WebKit {
+
+class SampleBufferDisplayLayerManager;
+
+class SampleBufferDisplayLayer final : public WebCore::SampleBufferDisplayLayer, public IPC::MessageReceiver, public GPUProcessConnection::Client, public Identified<SampleBufferDisplayLayerIdentifier> {
+public:
+    static Ref<SampleBufferDisplayLayer> create(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayerClient&);
+    ~SampleBufferDisplayLayer();
+
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+
+    WebCore::HostingContext hostingContext() const final { return m_hostingContext.value_or(WebCore::HostingContext()); }
+
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
+private:
+    SampleBufferDisplayLayer(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayerClient&);
+
+    // WebCore::SampleBufferDisplayLayer
+    void initialize(bool hideRootLayer, WebCore::IntSize, bool shouldMaintainAspectRatio, CompletionHandler<void(bool)>&&) final;
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(uint64_t) final;
+#endif
+    bool didFail() const final;
+    void updateDisplayMode(bool hideDisplayLayer, bool hideRootLayer) final;
+    void updateBoundsAndPosition(CGRect, std::optional<WTF::MachSendRightAnnotated>&&) final;
+    void flush() final;
+    void flushAndRemoveImage() final;
+    void play() final;
+    void pause() final;
+    void enqueueBlackFrameFrom(const WebCore::VideoFrame&) final;
+    void enqueueVideoFrame(WebCore::VideoFrame&) final;
+    void clearVideoFrames() final;
+    PlatformLayer* rootLayer() final;
+    void setShouldMaintainAspectRatio(bool) final;
+
+    // GPUProcessConnection::Client
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+
+    void setDidFail(bool);
+    void updateVideoFrameCounters(uint64_t, uint64_t);
+
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    WeakPtr<SampleBufferDisplayLayerManager> m_manager;
+    const Ref<IPC::Connection> m_connection;
+
+    PlatformLayerContainer m_videoLayer;
+    bool m_didFail { false };
+    bool m_paused { false };
+
+    SharedVideoFrameWriter m_sharedVideoFrameWriter;
+    std::optional<WebCore::HostingContext> m_hostingContext;
+};
+
+}
+
+#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)

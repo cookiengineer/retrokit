@@ -1271,30 +1271,6 @@ void WebPage::setMediaPlaybackEnvironment(const String& environment)
         gpuProcessConnection->setMediaPlaybackEnvironment(identifier(), environment);
 }
 
-void WebPage::setDisplayCaptureEnvironment(const String& environment)
-{
-    m_displayCaptureEnvironment = environment;
-    if (RefPtr gpuProcessConnection = WebProcess::singleton().existingGPUProcessConnection())
-        gpuProcessConnection->setDisplayCaptureEnvironment(identifier(), environment);
-}
-#endif
-
-#if ENABLE(WRITING_TOOLS)
-void WebPage::willBeginWritingToolsSession(const std::optional<WebCore::WritingTools::Session>& session, Vector<WebCore::JSHandleIdentifier>&& preservedNodeIdentifiers, CompletionHandler<void(const Vector<WebCore::WritingTools::Context>&)>&& completionHandler)
-{
-    WeakHashSet<Node, WeakPtrImplWithEventTargetData> preservedNodes;
-    for (auto& identifier : preservedNodeIdentifiers) {
-        auto* object = WebKitJSHandle::objectForIdentifier(identifier);
-        if (!object)
-            continue;
-
-        if (auto* jsNode = dynamicDowncast<JSNode>(object))
-            preservedNodes.add(protect(jsNode->wrapped()));
-    }
-
-    protect(corePage())->willBeginWritingToolsSession(session, WTF::move(preservedNodes), WTF::move(completionHandler));
-}
-
 void WebPage::didBeginWritingToolsSession(const WebCore::WritingTools::Session& session, const Vector<WebCore::WritingTools::Context>& contexts)
 {
     protect(corePage())->didBeginWritingToolsSession(session, contexts);

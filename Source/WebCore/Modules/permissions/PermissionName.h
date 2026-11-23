@@ -29,16 +29,11 @@ namespace WebCore {
 
 enum class PermissionName : uint8_t {
     BackgroundFetch,
-    Bluetooth,
-    Camera,
-    DisplayCapture,
-    Microphone,
     Midi,
     Nfc,
     Notifications,
     Push,
     ScreenWakeLock,
-    SpeakerSelection,
     StorageAccess
 };
 

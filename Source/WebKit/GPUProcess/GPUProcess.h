@@ -65,7 +65,6 @@ class SharedFileHandle;
 #endif
 
 namespace WebCore {
-class CaptureDevice;
 class NowPlayingManager;
 class SecurityOriginData;
 
@@ -203,7 +202,6 @@ private:
     void userPreferredLanguagesChanged(Vector<String>&&);
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-    void promptForGetDisplayMedia(WebCore::DisplayCapturePromptType, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
     void cancelGetDisplayMediaPrompt();
 #endif
 #if PLATFORM(MAC)

@@ -2416,13 +2416,6 @@ void HTMLMediaElement::executeCueEnterOrExitActionForTime(TextTrackCue& cue, Cue
     if (!track)
         return;
 
-    if (m_userPrefersTextDescriptions && track->isSpoken() && cue.startTime() < cue.endTime()) {
-        if (type == CueAction::Enter)
-            speakCueText(cue);
-        else if (m_userPrefersExtendedDescriptions)
-            pausePlaybackForExtendedTextDescription();
-    }
-
     Ref event = Event::create(type == CueAction::Enter ? eventNames().enterEvent : eventNames().exitEvent, Event::CanBubble::No, Event::IsCancelable::No);
     scheduleEventOn(cue, WTF::move(event));
 }
@@ -6312,7 +6305,6 @@ void HTMLMediaElement::updatePlayState()
             }
 
             playPlayer();
-            resumeSpeakingCueText();
         }
 
         startPlaybackProgressTimer();
@@ -6320,7 +6312,6 @@ void HTMLMediaElement::updatePlayState()
     } else {
         if (!playerPaused) {
             pausePlayer();
-            pauseSpeakingCueText();
         }
 
         m_playbackProgressTimer.stop();

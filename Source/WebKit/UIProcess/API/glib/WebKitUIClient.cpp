@@ -327,11 +327,6 @@ private:
         webkitWebViewIsPlayingAudioChanged(m_webView);
     }
 
-    void mediaCaptureStateDidChange(WebCore::MediaProducer::MediaStateFlags mediaStateFlags) final
-    {
-        webkitWebViewMediaCaptureStateDidChange(m_webView, mediaStateFlags);
-    }
-
 #if ENABLE(POINTER_LOCK)
     void requestPointerLock(WebPageProxy* page, CompletionHandler<void(bool)>&& completionHandler) final
     {

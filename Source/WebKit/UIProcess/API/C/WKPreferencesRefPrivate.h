@@ -106,8 +106,6 @@ WK_EXPORT void WKPreferencesSetAccelerated2DCanvasEnabled(WKPreferencesRef, bool
 WK_EXPORT bool WKPreferencesGetAccelerated2DCanvasEnabled(WKPreferencesRef);
 
 // Defaults to false.
-WK_EXPORT void WKPreferencesSetNeedsSiteSpecificQuirks(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetNeedsSiteSpecificQuirks(WKPreferencesRef);
 
 // Defaults to true.
 WK_EXPORT void WKPreferencesSetDOMTimersThrottlingEnabled(WKPreferencesRef preferences, bool enabled);
@@ -220,8 +218,6 @@ WK_EXPORT void WKPreferencesSetCookieEnabled(WKPreferencesRef preferences, bool 
 WK_EXPORT bool WKPreferencesGetCookieEnabled(WKPreferencesRef preferences);
 
 // Defaults to true on Mac, false elsewhere
-WK_EXPORT void WKPreferencesSetPDFPluginEnabled(WKPreferencesRef preferences, bool enabled);
-WK_EXPORT bool WKPreferencesGetPDFPluginEnabled(WKPreferencesRef preferences);
 
 // Defaults to false
 WK_EXPORT void WKPreferencesSetAggressiveTileRetentionEnabled(WKPreferencesRef preferences, bool enabled);
@@ -331,36 +327,22 @@ WK_EXPORT void WKPreferencesSetResourceUsageOverlayVisible(WKPreferencesRef, boo
 WK_EXPORT bool WKPreferencesGetResourceUsageOverlayVisible(WKPreferencesRef);
 
 // Defaults to false.
-WK_EXPORT void WKPreferencesSetMockCaptureDevicesEnabled(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetMockCaptureDevicesEnabled(WKPreferencesRef);
 
 // Defaults to true.
-WK_EXPORT void WKPreferencesSetGetUserMediaRequiresFocus(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetGetUserMediaRequiresFocus(WKPreferencesRef);
 
 // Defaults to true.
-WK_EXPORT void WKPreferencesSetICECandidateFilteringEnabled(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetICECandidateFilteringEnabled(WKPreferencesRef);
 
 // Defaults to false.
-WK_EXPORT void WKPreferencesSetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef);
 
 // Defaults to true.
-WK_EXPORT void WKPreferencesSetMediaCaptureRequiresSecureConnection(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetMediaCaptureRequiresSecureConnection(WKPreferencesRef);
 
 // Defaults to 1 minute on iOS, 10 minutes elsewhere
-WK_EXPORT void WKPreferencesSetInactiveMediaCaptureStreamRepromptIntervalInMinutes(WKPreferencesRef, double);
-WK_EXPORT double WKPreferencesGetInactiveMediaCaptureStreamRepromptIntervalInMinutes(WKPreferencesRef);
 
 // Defaults to false
 WK_EXPORT void WKPreferencesSetDownloadAttributeEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetDownloadAttributeEnabled(WKPreferencesRef);
 
 // Defaults to false.
-WK_EXPORT void WKPreferencesSetAllowsPictureInPictureMediaPlayback(WKPreferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetAllowsPictureInPictureMediaPlayback(WKPreferencesRef);
 
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetAttachmentElementEnabled(WKPreferencesRef preferencesRef, bool flag);
@@ -382,8 +364,6 @@ WK_EXPORT void WKPreferencesSetWebShareEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetWebShareEnabled(WKPreferencesRef);
 
 // Defaults to false
-WK_EXPORT void WKPreferencesSetWebRTCPlatformCodecsInGPUProcessEnabled(WKPreferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetWebRTCPlatformCodecsInGPUProcessEnabled(WKPreferencesRef);
 
 // Defaults to false
 WK_EXPORT void WKPreferencesSetIsAccessibilityIsolatedTreeEnabled(WKPreferencesRef, bool flag);
@@ -410,8 +390,6 @@ WK_EXPORT void WKPreferencesSetMediaPreloadingEnabled(WKPreferencesRef, bool fla
 WK_EXPORT bool WKPreferencesGetMediaPreloadingEnabled(WKPreferencesRef);
 
 // Defaults to false
-WK_EXPORT void WKPreferencesSetExposeSpeakersEnabled(WKPreferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetExposeSpeakersEnabled(WKPreferencesRef);
 
 // Defaults to false
 WK_EXPORT void WKPreferencesSetWebAuthenticationEnabled(WKPreferencesRef, bool flag);
@@ -451,16 +429,6 @@ WK_EXPORT bool WKPreferencesGetBoolValueForKeyForTesting(WKPreferencesRef, WKStr
 
 WK_EXPORT void WKPreferencesSetCSSOMViewScrollingAPIEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetCSSOMViewScrollingAPIEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetPageCacheSupportsPlugins(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetPageCacheSupportsPlugins(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetAsynchronousPluginInitializationEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetAsynchronousPluginInitializationEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetAsynchronousPluginInitializationEnabledForAllPlugins(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetAsynchronousPluginInitializationEnabledForAllPlugins(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetPluginSandboxProfilesEnabledForAllPlugins(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetPluginSandboxProfilesEnabledForAllPlugins(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetArtificialPluginInitializationDelayEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetArtificialPluginInitializationDelayEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetAllowCrossOriginSubresourcesToAskForCredentials(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetAllowCrossOriginSubresourcesToAskForCredentials(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetPaintTimingEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
@@ -505,12 +473,6 @@ WK_EXPORT void WKPreferencesSetReferrerPolicyAttributeEnabled(WKPreferencesRef, 
 WK_EXPORT bool WKPreferencesGetReferrerPolicyAttributeEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetServerTimingEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetServerTimingEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetSnapshotAllPlugIns(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetSnapshotAllPlugIns(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetAutostartOriginPlugInSnapshottingEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetAutostartOriginPlugInSnapshottingEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetPrimaryPlugInSnapshotDetectionEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetPrimaryPlugInSnapshotDetectionEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetHighlightAPIEnabled(WKPreferencesRef preferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetHighlightAPIEnabled(WKPreferencesRef preferencesRef) WK_C_API_DEPRECATED;
 

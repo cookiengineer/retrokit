@@ -44,7 +44,6 @@ namespace WebCore {
 
 class ContentSecurityPolicyResponseHeaders;
 class DedicatedWorkerThread;
-class JSRTCRtpScriptTransformerConstructor;
 class RTCRtpScriptTransformer;
 class RequestAnimationFrameCallback;
 class SerializedScriptValue;

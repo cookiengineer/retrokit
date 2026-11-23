@@ -156,8 +156,6 @@ WK_EXPORT void WKPreferencesSetJavaScriptCanAccessClipboard(WKPreferencesRef pre
 WK_EXPORT bool WKPreferencesGetJavaScriptCanAccessClipboard(WKPreferencesRef preferencesRef);
 
 // Defaults to false
-WK_EXPORT void WKPreferencesSetFullScreenEnabled(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetFullScreenEnabled(WKPreferencesRef preferencesRef);
 
 // Defaults to true.
 WK_EXPORT void WKPreferencesSetAVFoundationEnabled(WKPreferencesRef preferencesRef, bool enabled);
@@ -224,12 +222,8 @@ WK_EXPORT void WKPreferencesSetAsynchronousSpellCheckingEnabled(WKPreferencesRef
 WK_EXPORT bool WKPreferencesGetAsynchronousSpellCheckingEnabled(WKPreferencesRef preferencesRef);
 
 // Defaults to false
-WK_EXPORT void WKPreferencesSetMediaDevicesEnabled(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetMediaDevicesEnabled(WKPreferencesRef preferencesRef);
 
 // Defaults to true
-WK_EXPORT void WKPreferencesSetPeerConnectionEnabled(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetPeerConnectionEnabled(WKPreferencesRef preferencesRef);
 
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetSpatialNavigationEnabled(WKPreferencesRef preferencesRef, bool enabled);
@@ -244,28 +238,20 @@ WK_EXPORT void WKPreferencesSetIgnoreViewportScalingConstraints(WKPreferencesRef
 WK_EXPORT bool WKPreferencesGetIgnoreViewportScalingConstraints(WKPreferencesRef preferencesRef);
 
 // Defaults to true.
-WK_EXPORT void WKPreferencesSetAllowsAirPlayForMediaPlayback(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetAllowsAirPlayForMediaPlayback(WKPreferencesRef preferencesRef);
 
 // Defaults to kWKUserInterfaceDirectionPolicyContent.
 WK_EXPORT void WKPreferencesSetUserInterfaceDirectionPolicy(WKPreferencesRef preferencesRef, _WKUserInterfaceDirectionPolicy userInterfaceDirectionPolicy);
 WK_EXPORT _WKUserInterfaceDirectionPolicy WKPreferencesGetUserInterfaceDirectionPolicy(WKPreferencesRef preferencesRef);
 
 // Defaults to false.
-WK_EXPORT bool WKPreferencesGetApplePayEnabled(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetApplePayEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 // Defaults to false.
 WK_EXPORT bool WKPreferencesGetCSSTransformStyleSeparatedEnabled(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetCSSTransformStyleSeparatedEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 // Defaults to true.
-WK_EXPORT bool WKPreferencesGetApplePayCapabilityDisclosureAllowed(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetApplePayCapabilityDisclosureAllowed(WKPreferencesRef preferencesRef, bool allowed);
 
 // Defaults to true.
-WK_EXPORT bool WKPreferencesGetLegacyEncryptedMediaAPIEnabled(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetLegacyEncryptedMediaAPIEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 // Defaults to true.
 WK_EXPORT bool WKPreferencesGetAllowMediaContentTypesRequiringHardwareSupportAsFallback(WKPreferencesRef preferencesRef);
@@ -283,22 +269,12 @@ WK_EXPORT bool WKPreferencesGetWebSQLDisabled(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetWebSQLDisabled(WKPreferencesRef preferencesRef, bool enabled);
 
 // Obsolete. Always returns true.
-WK_EXPORT void WKPreferencesSetCaptureAudioInUIProcessEnabled(WKPreferencesRef preferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetCaptureAudioInUIProcessEnabled(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetCaptureVideoInUIProcessEnabled(WKPreferencesRef preferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetCaptureVideoInUIProcessEnabled(WKPreferencesRef preferencesRef);
 
-WK_EXPORT void WKPreferencesSetCaptureAudioInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetCaptureAudioInGPUProcessEnabled(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetCaptureVideoInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetCaptureVideoInGPUProcessEnabled(WKPreferencesRef preferencesRef);
 
 WK_EXPORT bool WKPreferencesGetVP9DecoderEnabled(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetVP9DecoderEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 // Defaults to false.
-WK_EXPORT bool WKPreferencesGetRemotePlaybackEnabled(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetRemotePlaybackEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 // Defaults to false.
 WK_EXPORT bool WKPreferencesGetShouldUseServiceWorkerShortTimeout(WKPreferencesRef preferencesRef);
@@ -319,20 +295,12 @@ WK_EXPORT bool WKPreferencesGetRestrictedHTTPResponseAccess(WKPreferencesRef) WK
 WK_EXPORT void WKPreferencesSetRestrictedHTTPResponseAccess(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetXSSAuditorEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetXSSAuditorEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetPluginsEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetPluginsEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetJavaEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetJavaEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetAVFoundationNSURLSessionEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetAVFoundationNSURLSessionEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetCrossOriginResourcePolicyEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetCrossOriginResourcePolicyEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetPlugInSnapshottingEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetPlugInSnapshottingEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetMediaStreamEnabled(WKPreferencesRef preferencesRef, bool enabled) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef) WK_C_API_DEPRECATED;
 
 #ifdef __cplusplus
 }

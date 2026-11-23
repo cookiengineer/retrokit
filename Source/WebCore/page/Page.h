@@ -245,7 +245,6 @@ enum class LoginStatusAuthenticationType : uint8_t;
 enum class PlatformMediaSessionPlaybackControlsPurpose : uint8_t;
 enum class MediaPlaybackTargetMockState : uint8_t;
 enum class MediaProducerMediaState : uint32_t;
-enum class MediaProducerMediaCaptureKind : uint8_t;
 enum class MediaProducerMutedState : uint8_t;
 enum class RouteSharingPolicy : uint8_t;
 enum class ShouldRelaxThirdPartyCookieBlocking : bool;
@@ -999,7 +998,6 @@ public:
     void updateIsPlayingMedia();
     MediaProducerMutedStateFlags mutedState() const { return m_mutedState; }
     inline bool isAudioMuted() const;
-    inline bool isMediaCaptureMuted() const;
     void schedulePlaybackControlsManagerUpdate();
 #if ENABLE(VIDEO)
     void mediaEngineChanged(HTMLMediaElement&);
@@ -1008,7 +1006,6 @@ public:
     bool shouldSuppressHDR() const { return m_shouldSuppressHDR; }
     WEBCORE_EXPORT void setShouldSuppressHDR(bool);
 
-    WEBCORE_EXPORT void stopMediaCapture(MediaProducerMediaCaptureKind);
 
 #if ENABLE(MODEL_PROCESS)
     void incrementModelElementCount();

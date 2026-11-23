@@ -1831,7 +1831,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
     html/HTMLElement+CSSOMView.idl
     html/HTMLHyperlinkElementUtils.idl
     html/HTMLImageElement+CSSOMView.idl
-    html/HTMLMediaElement+AudioOutput.idl
     html/HTMLOrSVGOrMathMLElement.idl
     html/HTMLVideoElement+CaptionDisplaySettings.idl
     html/HTMLVideoElement+RequestVideoFrameCallback.idl

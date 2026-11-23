@@ -37,9 +37,6 @@ namespace WebCore {
 
 class LocalDOMWindow;
 class HTMLMediaElement;
-class MediaStream;
-class MediaStreamAudioDestinationNode;
-class MediaStreamAudioSourceNode;
 
 struct AudioContextOptions;
 struct AudioTimestamp;
@@ -141,11 +138,11 @@ private:
     bool supportsSeeking() const final { return false; }
     bool canProduceAudio() const final { return true; }
     std::optional<MediaSessionGroupIdentifier> mediaSessionGroupIdentifier() const final;
-    bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const final;
     bool isSuspended() const final;
     bool NODELETE isPlaying() const final;
     bool isAudible() const final;
     bool isNowPlayingEligible() const final;
+    bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const final;
     std::optional<NowPlayingInfo> nowPlayingInfo() const final;
     WeakPtr<PlatformMediaSessionInterface> selectBestMediaSession(const Vector<WeakPtr<PlatformMediaSessionInterface>>&, PlatformMediaSession::PlaybackControlsPurpose) final;
 

@@ -52,25 +52,9 @@ typedef NS_ENUM(NSInteger, _WKPaginationMode) {
     _WKPaginationModeBottomToTop,
 } WK_API_AVAILABLE(macos(10.10), ios(8.0));
 
-typedef NS_OPTIONS(NSUInteger, _WKMediaCaptureStateDeprecated) {
-    _WKMediaCaptureStateDeprecatedNone = 0,
-    _WKMediaCaptureStateDeprecatedActiveMicrophone = 1 << 0,
-    _WKMediaCaptureStateDeprecatedActiveCamera = 1 << 1,
-    _WKMediaCaptureStateDeprecatedMutedMicrophone = 1 << 2,
-    _WKMediaCaptureStateDeprecatedMutedCamera = 1 << 3,
-} WK_API_AVAILABLE(macos(10.13), ios(11.0));
-
 typedef NS_OPTIONS(NSUInteger, _WKMediaMutedState) {
     _WKMediaNoneMuted = 0,
     _WKMediaAudioMuted = 1 << 0,
-    _WKMediaCaptureDevicesMuted = 1 << 1,
-    _WKMediaScreenCaptureMuted = 1 << 2,
-} WK_API_AVAILABLE(macos(10.13), ios(11.0));
-
-typedef NS_OPTIONS(NSUInteger, _WKCaptureDevices) {
-    _WKCaptureDeviceMicrophone = 1 << 0,
-    _WKCaptureDeviceCamera = 1 << 1,
-    _WKCaptureDeviceDisplay = 1 << 2,
 } WK_API_AVAILABLE(macos(10.13), ios(11.0));
 
 typedef NS_OPTIONS(NSUInteger, _WKSelectionAttributes) {
@@ -409,13 +393,9 @@ for this property.
 @property (nonatomic, setter=_setFullscreenDelegate:) id<_WKFullscreenDelegate> _fullscreenDelegate WK_API_AVAILABLE(macos(10.13), ios(11.0));
 @property (nonatomic, readonly) BOOL _isInFullscreen WK_API_AVAILABLE(macos(10.12.4));
 
-@property (nonatomic, readonly) _WKMediaCaptureStateDeprecated _mediaCaptureState WK_API_AVAILABLE(macos(10.15), ios(13.0));
-@property (nonatomic, readonly) _WKMediaMutedState _mediaMutedState WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 - (void)_setPageMuted:(_WKMediaMutedState)mutedState WK_API_AVAILABLE(macos(10.13), ios(11.0));
 
-@property (nonatomic, setter=_setMediaCaptureEnabled:) BOOL _mediaCaptureEnabled WK_API_AVAILABLE(macos(10.13), ios(11.0));
-- (void)_stopMediaCapture WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
 
 @property (nonatomic, readonly) BOOL _isSuspended;
 
@@ -528,65 +508,6 @@ for this property.
 
 // Default value is 0. A value of 0 means the window's backing scale factor will be used and automatically update when the window moves screens.
 @property (nonatomic, setter=_setOverrideDeviceScaleFactor:) CGFloat _overrideDeviceScaleFactor WK_API_AVAILABLE(macos(10.11), ios(16.4));
-
-typedef NS_ENUM(NSInteger, WKDisplayCaptureState) {
-    WKDisplayCaptureStateNone,
-    WKDisplayCaptureStateActive,
-    WKDisplayCaptureStateMuted,
-} WK_API_AVAILABLE(macos(13.0), ios(16.0));
-
-typedef NS_ENUM(NSInteger, WKSystemAudioCaptureState) {
-    WKSystemAudioCaptureStateNone,
-    WKSystemAudioCaptureStateActive,
-    WKSystemAudioCaptureStateMuted,
-} WK_API_AVAILABLE(macos(13.0), ios(16.0));
-
-typedef NS_OPTIONS(NSUInteger, WKDisplayCaptureSurfaces) {
-    WKDisplayCaptureSurfaceNone = 0,
-    WKDisplayCaptureSurfaceScreen = 0x1,
-    WKDisplayCaptureSurfaceWindow = 0x2,
-};
-
-/*! @abstract The type(s) of displays being captured on a web page.
- @discussion @link WKWebView @/link is key-value observing (KVO) compliant
- for this property.
- */
-@property (nonatomic, readonly) WKDisplayCaptureSurfaces _displayCaptureSurfaces WK_API_AVAILABLE(macos(13.0), ios(16.0));
-
-/*! @abstract The state of display capture on a web page.
- @discussion @link WKWebView @/link is key-value observing (KVO) compliant
- for this property.
- */
-@property (nonatomic, readonly) WKDisplayCaptureState _displayCaptureState WK_API_AVAILABLE(macos(13.0), ios(16.0));
-
-/*! @abstract The state of system audio capture on a web page.
- @discussion @link WKWebView @/link is key-value observing (KVO) compliant
- for this property.
- */
-@property (nonatomic, readonly) WKSystemAudioCaptureState _systemAudioCaptureState WK_API_AVAILABLE(macos(13.0), ios(16.0));
-
-/*! @abstract Set display capture state of a WKWebView.
- @param state State to apply for capture.
- @param completionHandler A block to invoke after the screen state has been changed.
- @discussion
- If value is WKDisplayCaptureStateNone, this will stop all display capture.
- If value is WKDisplayCaptureStateMuted, all active display captures will become muted.
- If value is WKDisplayCaptureStateActive, all muted display captures will become active.
- */
-- (void)_setDisplayCaptureState:(WKDisplayCaptureState)state completionHandler:(void (^)(void))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
-
-/*! @abstract Set system audio capture state of a WKWebView.
- @param state State to apply for system audio capture.
- @param completionHandler A block to invoke after the system audio state has been changed.
- @discussion
- If value is WKSystemAudioCaptureStateNone, this will stop any system audio capture.
- If value is WKSystemAudioCaptureStateMuted, any active system audio capture will become muted.
- If value is WKSystemAudioCaptureStateActive, any muted system audio capture will become active.
- @note When system audio capture is active, if screenCaptureState is active, all system audio will be captured.
- Otherwise, if windowCaptureState is active, only the application whose window being is captured will have its audio captured.
- If both screenCaptureState and windowCaptureState are None or Muted, no system audio will be captured.
- */
-- (void)_setSystemAudioCaptureState:(WKSystemAudioCaptureState)state completionHandler:(void (^)(void))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
 + (void)_permissionChanged:(NSString *)permissionName forOrigin:(WKSecurityOrigin *)origin WK_API_AVAILABLE(macos(13.3), ios(16.4));
 

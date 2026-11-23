@@ -92,7 +92,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
     SetOverrideViewportArguments(struct std::optional<WebCore::ViewportArguments> arguments)
     DynamicViewportSizeUpdate(struct WebKit::DynamicViewportSizeUpdate target)
 
-    SetScreenIsBeingCaptured(bool captured)
 
     SetInsertionPointColor(WebCore::Color color)
 
@@ -529,7 +528,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
     SetMediaVolume(float volume)
     SetMuted(OptionSet<WebCore::MediaProducerMutedState> muted) -> ()
     SetMayStartMediaWhenInWindow(bool mayStartMedia)
-    StopMediaCapture(enum:uint8_t WebCore::MediaProducerMediaCaptureKind kind) -> ()
 
     SetCanRunBeforeUnloadConfirmPanel(bool canRunBeforeUnloadConfirmPanel)
     SetCanRunModal(bool canRunModal)
@@ -863,7 +861,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     SetMediaPlaybackEnvironment(String environment)
-    SetDisplayCaptureEnvironment(String environment)
 #endif
 
 #if ENABLE(WRITING_TOOLS)

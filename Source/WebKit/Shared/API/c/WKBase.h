@@ -131,7 +131,6 @@ typedef const struct OpaqueWKSessionState* WKSessionStateRef;
 typedef const struct OpaqueWKUserContentController* WKUserContentControllerRef;
 typedef const struct OpaqueWKUserContentExtensionStore* WKUserContentExtensionStoreRef;
 typedef const struct OpaqueWKUserContentFilter* WKUserContentFilterRef;
-typedef const struct OpaqueWKUserMediaPermissionRequest* WKUserMediaPermissionRequestRef;
 typedef const struct OpaqueWKUserScript* WKUserScriptRef;
 typedef const struct OpaqueWKViewportAttributes* WKViewportAttributesRef;
 typedef const struct OpaqueWKWebsiteDataConfigurationStore* WKWebsiteDataStoreConfigurationRef;

@@ -44,23 +44,17 @@ public:
 
     void takeVisibleActivity();
     void takeAudibleActivity();
-    void takeCapturingActivity();
-    void takeMutedCaptureAssertion();
     void takeNetworkActivity();
     void takeTextExtractionAssertion();
 
     void reset();
     void dropVisibleActivity();
     void dropAudibleActivity();
-    void dropCapturingActivity();
-    void dropMutedCaptureAssertion();
     void dropNetworkActivity();
     void dropTextExtractionAssertion();
 
     bool NODELETE hasValidVisibleActivity() const;
     bool NODELETE hasValidAudibleActivity() const;
-    bool NODELETE hasValidCapturingActivity() const;
-    bool NODELETE hasValidMutedCaptureAssertion() const;
     bool NODELETE hasValidNetworkActivity() const;
 
 #if PLATFORM(IOS_FAMILY)
@@ -90,8 +84,6 @@ private:
     bool m_takeAccessibilityActivityWhenInWindow { false };
 #endif
     RefPtr<ProcessThrottlerActivity> m_isAudibleActivity;
-    RefPtr<ProcessThrottlerActivity> m_isCapturingActivity;
-    RefPtr<ProcessAssertion> m_isMutedCaptureAssertion;
 #if PLATFORM(IOS_FAMILY)
     RefPtr<ProcessThrottlerActivity> m_openingAppLinkActivity;
 #endif

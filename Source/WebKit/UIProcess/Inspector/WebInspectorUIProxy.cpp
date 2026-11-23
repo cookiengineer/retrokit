@@ -787,9 +787,6 @@ void WebInspectorUIProxy::setDeveloperPreferenceOverride(WebCore::InspectorBacke
             protect(inspectedPage->websiteDataStore())->setResourceLoadStatisticsDebugMode(overrideValue && overrideValue.value());
         return;
 
-    case InspectorBackendClient::DeveloperPreference::MockCaptureDevicesEnabled:
-        return;
-
     case InspectorBackendClient::DeveloperPreference::NeedsSiteSpecificQuirks:
         if (RefPtr inspectedPage = m_inspectedPage.get())
             protect(inspectedPage->preferences())->setNeedsSiteSpecificQuirksInspectorOverride(overrideValue);

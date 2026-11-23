@@ -787,15 +787,6 @@ WebPageProxy* WebProcessProxy::webPage(PageIdentifier pageID)
     return nullptr;
 }
 
-WebPageProxy* WebProcessProxy::audioCapturingWebPage()
-{
-    for (WeakRef page : globalPageMap().values()) {
-        if (page->hasActiveAudioStream())
-            return page.ptr();
-    }
-    return nullptr;
-}
-
 
 void WebProcessProxy::setThirdPartyCookieBlockingMode(ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode, CompletionHandler<void()>&& completionHandler)
 {

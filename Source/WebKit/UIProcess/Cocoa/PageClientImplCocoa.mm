@@ -246,56 +246,6 @@ PlatformTextAlternatives *PageClientImplCocoa::platformDictationAlternatives(Web
     return m_alternativeTextUIController->alternativesForContext(dictationContext);
 }
 
-void PageClientImplCocoa::microphoneCaptureWillChange()
-{
-    [webView() willChangeValueForKey:@"microphoneCaptureState"];
-}
-
-void PageClientImplCocoa::cameraCaptureWillChange()
-{
-    [webView() willChangeValueForKey:@"cameraCaptureState"];
-}
-
-void PageClientImplCocoa::displayCaptureWillChange()
-{
-    [webView() willChangeValueForKey:@"_displayCaptureState"];
-}
-
-void PageClientImplCocoa::displayCaptureSurfacesWillChange()
-{
-    [webView() willChangeValueForKey:@"_displayCaptureSurfaces"];
-}
-
-void PageClientImplCocoa::systemAudioCaptureWillChange()
-{
-    [webView() willChangeValueForKey:@"_systemAudioCaptureState"];
-}
-
-void PageClientImplCocoa::microphoneCaptureChanged()
-{
-    [webView() didChangeValueForKey:@"microphoneCaptureState"];
-}
-
-void PageClientImplCocoa::cameraCaptureChanged()
-{
-    [webView() didChangeValueForKey:@"cameraCaptureState"];
-}
-
-void PageClientImplCocoa::displayCaptureChanged()
-{
-    [webView() didChangeValueForKey:@"_displayCaptureState"];
-}
-
-void PageClientImplCocoa::displayCaptureSurfacesChanged()
-{
-    [webView() didChangeValueForKey:@"_displayCaptureSurfaces"];
-}
-
-void PageClientImplCocoa::systemAudioCaptureChanged()
-{
-    [webView() didChangeValueForKey:@"_systemAudioCaptureState"];
-}
-
 WindowKind PageClientImplCocoa::windowKind()
 {
     RetainPtr window = [webView() window];

@@ -3004,51 +3004,7 @@ void WKPageSetMuted(WKPageRef pageRef, WKMediaMutedState mutedState)
 
     if (mutedState & kWKMediaAudioMuted)
         coreState.add(WebCore::MediaProducerMutedState::AudioIsMuted);
-    if (mutedState & kWKMediaCaptureDevicesMuted)
-        coreState.add(WebCore::MediaProducer::AudioAndVideoCaptureIsMuted);
-
-    if (mutedState & kWKMediaScreenCaptureMuted) {
-        coreState.add(WebCore::MediaProducerMutedState::ScreenCaptureIsMuted);
-        coreState.add(WebCore::MediaProducerMutedState::WindowCaptureIsMuted);
-        coreState.add(WebCore::MediaProducerMutedState::SystemAudioCaptureIsMuted);
-    }
-    if (mutedState & kWKMediaCameraCaptureMuted)
-        coreState.add(WebCore::MediaProducerMutedState::VideoCaptureIsMuted);
-    if (mutedState & kWKMediaMicrophoneCaptureMuted)
-        coreState.add(WebCore::MediaProducerMutedState::AudioCaptureIsMuted);
-
-    if (mutedState & kWKMediaScreenCaptureUnmuted) {
-        coreState.remove(WebCore::MediaProducerMutedState::ScreenCaptureIsMuted);
-        coreState.remove(WebCore::MediaProducerMutedState::WindowCaptureIsMuted);
-        coreState.remove(WebCore::MediaProducerMutedState::SystemAudioCaptureIsMuted);
-    }
-    if (mutedState & kWKMediaCameraCaptureUnmuted)
-        coreState.remove(WebCore::MediaProducerMutedState::VideoCaptureIsMuted);
-    if (mutedState & kWKMediaMicrophoneCaptureUnmuted)
-        coreState.remove(WebCore::MediaProducerMutedState::AudioCaptureIsMuted);
-
     protect(toImpl(pageRef))->setMuted(coreState, WebKit::WebPageProxy::FromApplication::Yes);
-}
-
-void WKPageSetMediaCaptureEnabled(WKPageRef pageRef, bool enabled)
-{
-    CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->setMediaCaptureEnabled(enabled);
-}
-
-bool WKPageGetMediaCaptureEnabled(WKPageRef page)
-{
-    return toImpl(page)->mediaCaptureEnabled();
-}
-
-void WKPageClearUserMediaState(WKPageRef pageRef)
-{
-    CRASH_IF_SUSPENDED;
-#if ENABLE(MEDIA_STREAM)
-    protect(toImpl(pageRef))->clearUserMediaState();
-#else
-    UNUSED_PARAM(pageRef);
-#endif
 }
 
 void WKPagePostMessageToInjectedBundle(WKPageRef pageRef, WKStringRef messageNameRef, WKTypeRef messageBodyRef)
@@ -3160,22 +3116,6 @@ WKMediaState WKPageGetMediaState(WKPageRef page)
         state |= kWKMediaIsPlayingAudio;
     if (coreState & WebCore::MediaProducerMediaState::IsPlayingVideo)
         state |= kWKMediaIsPlayingVideo;
-    if (coreState & WebCore::MediaProducerMediaState::HasActiveAudioCaptureDevice)
-        state |= kWKMediaHasActiveAudioCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasActiveVideoCaptureDevice)
-        state |= kWKMediaHasActiveVideoCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasMutedAudioCaptureDevice)
-        state |= kWKMediaHasMutedAudioCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasMutedVideoCaptureDevice)
-        state |= kWKMediaHasMutedVideoCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasActiveScreenCaptureDevice)
-        state |= kWKMediaHasActiveScreenCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasMutedScreenCaptureDevice)
-        state |= kWKMediaHasMutedScreenCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasActiveWindowCaptureDevice)
-        state |= kWKMediaHasActiveWindowCaptureDevice;
-    if (coreState & WebCore::MediaProducerMediaState::HasMutedWindowCaptureDevice)
-        state |= kWKMediaHasMutedWindowCaptureDevice;
 
     return state;
 }
@@ -3394,31 +3334,6 @@ void WKPageSetPrivateClickMeasurementAppBundleIDForTesting(WKPageRef pageRef, WK
     });
 }
 
-void WKPageSetMockCameraOrientationForTesting(WKPageRef pageRef, uint64_t rotation, WKStringRef persistentId)
-{
-    CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->setMediaCaptureRotationForTesting(rotation, toWTFString(persistentId));
-}
-
-bool WKPageIsMockRealtimeMediaSourceCenterEnabled(WKPageRef)
-{
-#if (PLATFORM(COCOA) || USE(GSTREAMER)) && ENABLE(MEDIA_STREAM)
-    return MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled();
-#else
-    return false;
-#endif
-}
-
-void WKPageSetMockCaptureDevicesInterrupted(WKPageRef pageRef, bool isCameraInterrupted, bool isMicrophoneInterrupted)
-{
-    CRASH_IF_SUSPENDED;
-}
-
-void WKPageTriggerMockCaptureConfigurationChange(WKPageRef pageRef, bool forCamera, bool forMicrophone, bool forDisplay)
-{
-    CRASH_IF_SUSPENDED;
-}
-
 void WKPageLoadedSubresourceDomains(WKPageRef pageRef, WKPageLoadedSubresourceDomainsFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
@@ -3434,12 +3349,6 @@ void WKPageClearLoadedSubresourceDomains(WKPageRef pageRef)
 {
     CRASH_IF_SUSPENDED;
     protect(toImpl(pageRef))->clearLoadedSubresourceDomains();
-}
-
-void WKPageSetMediaCaptureReportingDelayForTesting(WKPageRef pageRef, double delay)
-{
-    CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setMediaCaptureReportingDelay(Seconds(delay));
 }
 
 void WKPageDispatchActivityStateUpdateForTesting(WKPageRef pageRef)

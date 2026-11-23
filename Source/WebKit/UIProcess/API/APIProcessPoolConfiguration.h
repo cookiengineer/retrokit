@@ -103,8 +103,6 @@ public:
     bool shouldTakeUIBackgroundAssertion() const { return m_shouldTakeUIBackgroundAssertion; }
     void setShouldTakeUIBackgroundAssertion(bool shouldTakeUIBackgroundAssertion) { m_shouldTakeUIBackgroundAssertion = shouldTakeUIBackgroundAssertion; }
 
-    bool shouldCaptureDisplayInUIProcess() const { return m_shouldCaptureDisplayInUIProcess; }
-    void setShouldCaptureDisplayInUIProcess(bool shouldCaptureDisplayInUIProcess) { m_shouldCaptureDisplayInUIProcess = shouldCaptureDisplayInUIProcess; }
 
     bool shouldConfigureJSCForTesting() const { return m_shouldConfigureJSCForTesting; }
     void setShouldConfigureJSCForTesting(bool value) { m_shouldConfigureJSCForTesting = value; }
@@ -168,7 +166,6 @@ private:
     bool m_shouldThrowExceptionForGlobalConstantRedeclaration { true };
     bool m_alwaysRunsAtBackgroundPriority { false };
     bool m_shouldTakeUIBackgroundAssertion { true };
-    bool m_shouldCaptureDisplayInUIProcess { DEFAULT_CAPTURE_DISPLAY_IN_UI_PROCESS };
     ProcessID m_presentingApplicationPID { getCurrentProcessID() };
     std::optional<bool> m_processSwapsOnNavigationFromClient;
     bool m_processSwapsOnNavigationFromExperimentalFeatures { false };

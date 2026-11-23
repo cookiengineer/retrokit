@@ -430,7 +430,6 @@ UIProcess/Cocoa/AutomationSessionClient.mm @nonARC
 UIProcess/Cocoa/BrowsingWarningCocoa.mm @nonARC
 UIProcess/Cocoa/CoreTelephonyUtilities.mm @nonARC
 UIProcess/Cocoa/DiagnosticLoggingClient.mm @nonARC
-UIProcess/Cocoa/DisplayCaptureSessionManager.mm @nonARC @cost:3
 UIProcess/Cocoa/DownloadProxyMapCocoa.mm @nonARC
 UIProcess/Cocoa/ExtensionCapabilityGranter.mm @nonARC
 UIProcess/Cocoa/FindClient.mm @nonARC
@@ -440,8 +439,6 @@ UIProcess/Cocoa/GlobalFindInPageState.mm @nonARC
 UIProcess/Cocoa/IconLoadingDelegate.mm @nonARC
 UIProcess/Cocoa/LegacyDownloadClient.mm @nonARC
 UIProcess/Cocoa/LegacySessionStateCoding.cpp
-UIProcess/Cocoa/MediaUtilities.mm @nonARC
-UIProcess/Cocoa/MediaPermissionUtilities.mm @nonARC
 UIProcess/Cocoa/NavigationState.mm @nonARC
 UIProcess/Cocoa/PageClientImplCocoa.mm @nonARC @cost:3
 UIProcess/Cocoa/PlatformWritingToolsUtilities.mm @nonARC
@@ -709,9 +706,6 @@ WebProcess/ApplePay/WebPaymentCoordinator.cpp
 WebProcess/ApplePay/cocoa/WebPaymentCoordinatorCocoa.mm @nonARC
 
 WebProcess/cocoa/PlaybackSessionManager.mm @nonARC
-WebProcess/cocoa/RemoteCaptureSampleManager.cpp
-WebProcess/cocoa/RemoteRealtimeAudioSource.cpp
-WebProcess/cocoa/RemoteRealtimeVideoSource.cpp
 WebProcess/cocoa/TextRecognitionRequest.cpp
 WebProcess/cocoa/VideoPresentationManager.mm @nonARC @cost:7
 WebProcess/cocoa/WebProcessCocoa.mm @nonARC @cost:4
@@ -920,7 +914,6 @@ RemoteAudioHardwareListenerMessageReceiver.cpp
 RemoteAudioSessionMessageReceiver.cpp
 RemoteAudioSessionProxyMessageReceiver.cpp
 RemoteAudioSourceProviderManagerMessageReceiver.cpp
-RemoteCaptureSampleManagerMessageReceiver.cpp
 RemoteCDMFactoryProxyMessageReceiver.cpp @cost:3
 RemoteCDMInstanceMessageReceiver.cpp
 RemoteCDMInstanceProxyMessageReceiver.cpp @cost:3

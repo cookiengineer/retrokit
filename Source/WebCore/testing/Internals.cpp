@@ -5628,10 +5628,6 @@ void Internals::setPageMuted(StringView statesString)
     for (StringView stateString : statesString.split(',')) {
         if (equalLettersIgnoringASCIICase(stateString, "audio"_s))
             state.add(MediaProducerMutedState::AudioIsMuted);
-        if (equalLettersIgnoringASCIICase(stateString, "capturedevices"_s))
-            state.add(MediaProducer::AudioAndVideoCaptureIsMuted);
-        if (equalLettersIgnoringASCIICase(stateString, "screencapture"_s))
-            state.add(MediaProducerMutedState::ScreenCaptureIsMuted);
     }
 
     if (Page* page = document->page())
@@ -5671,41 +5667,13 @@ String Internals::pageMediaState()
     if (state.containsAny(MediaProducerMediaState::HasAudioOrVideo))
         string.append("HasAudioOrVideo,"_s);
 
-    if (state.containsAny(MediaProducerMediaState::HasActiveAudioCaptureDevice))
-        string.append("HasActiveAudioCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasMutedAudioCaptureDevice))
-        string.append("HasMutedAudioCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasInterruptedAudioCaptureDevice))
-        string.append("HasInterruptedAudioCaptureDevice,"_s);
 
-    if (state.containsAny(MediaProducerMediaState::HasActiveVideoCaptureDevice))
-        string.append("HasActiveVideoCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasMutedVideoCaptureDevice))
-        string.append("HasMutedVideoCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasInterruptedVideoCaptureDevice))
-        string.append("HasInterruptedVideoCaptureDevice,"_s);
 
     if (state.containsAny(MediaProducerMediaState::HasUserInteractedWithMediaElement))
         string.append("HasUserInteractedWithMediaElement,"_s);
 
-    if (state.containsAny(MediaProducerMediaState::HasActiveScreenCaptureDevice))
-        string.append("HasActiveScreenCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasMutedScreenCaptureDevice))
-        string.append("HasMutedScreenCaptureDevice,"_s);
 
-    if (state.containsAny(MediaProducerMediaState::HasActiveWindowCaptureDevice))
-        string.append("HasActiveWindowCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasMutedWindowCaptureDevice))
-        string.append("HasMutedWindowCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasInterruptedWindowCaptureDevice))
-        string.append("HasInterruptedWindowCaptureDevice,"_s);
 
-    if (state.containsAny(MediaProducerMediaState::HasActiveSystemAudioCaptureDevice))
-        string.append("HasActiveSystemAudioCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasMutedSystemAudioCaptureDevice))
-        string.append("HasMutedSystemAudioCaptureDevice,"_s);
-    if (state.containsAny(MediaProducerMediaState::HasInterruptedSystemAudioCaptureDevice))
-        string.append("HasInterruptedSystemAudioCaptureDevice,"_s);
 
     if (string.isEmpty())
         string.append("IsNotPlaying"_s);

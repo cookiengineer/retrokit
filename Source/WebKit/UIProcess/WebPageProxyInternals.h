@@ -236,7 +236,6 @@ public:
     OptionSet<WebCore::ActivityState> potentiallyChangedActivityStateFlags;
     ProcessSuppressionDisabledToken preventProcessSuppressionCount;
     std::optional<PrivateClickMeasurementAndMetadata> privateClickMeasurement;
-    WebCore::MediaProducerMediaStateFlags reportedMediaCaptureState;
     RunLoop::Timer resetRecentCrashCountTimer;
     WebCore::RectEdges<bool> rubberBandableEdges { true, true, true, true };
     bool alwaysBounceVertical { true };
@@ -255,7 +254,6 @@ public:
     RunLoop::Timer tryCloseTimeoutTimer;
     WebCore::Color underPageBackgroundColorOverride;
     WebCore::Color underlayColor;
-    RunLoop::Timer updateReportedMediaCaptureStateTimer;
     HashMap<WebURLSchemeHandlerIdentifier, Ref<WebURLSchemeHandler>> urlSchemeHandlersByIdentifier;
     std::optional<WebCore::FloatRect> viewExposedRect;
     std::optional<WebCore::FloatSize> viewportSizeForCSSViewportUnits;
@@ -356,7 +354,6 @@ public:
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     RefPtr<MediaCapability> mediaCapability;
-    RefPtr<MediaCapability> displayCaptureCapability;
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)

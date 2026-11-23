@@ -44,7 +44,6 @@
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
-#include <WebCore/MediaPlayerPrivateMediaStreamAVFObjC.h>
 #endif
 
 namespace WebKit {

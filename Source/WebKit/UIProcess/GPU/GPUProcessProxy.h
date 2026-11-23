@@ -51,13 +51,11 @@
 #endif
 
 namespace WebCore {
-class CaptureDevice;
 class SecurityOriginData;
 
 struct MockMediaDevice;
 struct ScreenProperties;
 
-enum class DisplayCapturePromptType : uint8_t;
 enum class VideoFrameRotation : uint16_t;
 }
 
@@ -99,7 +97,6 @@ public:
 
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-    void promptForGetDisplayMedia(WebCore::DisplayCapturePromptType, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
     void cancelGetDisplayMediaPrompt();
 #endif
 
@@ -210,9 +207,6 @@ private:
     RefPtr<ProcessThrottler::Activity> m_activityFromWebProcesses;
 #if PLATFORM(COCOA)
     bool m_hasSentTCCDSandboxExtension { false };
-    bool m_hasSentCameraSandboxExtension { false };
-    bool m_hasSentMicrophoneSandboxExtension { false };
-    bool m_hasSentDisplayCaptureSandboxExtension { false };
     bool m_hasSentGPUToolsSandboxExtensions { false };
     bool m_isMetalDebugDeviceEnabledForTesting { false };
     bool m_isMetalShaderValidationEnabledForTesting { false };

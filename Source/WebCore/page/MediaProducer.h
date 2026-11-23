@@ -44,43 +44,14 @@ enum class MediaProducerMediaState : uint32_t {
     IsPreviousTrackControlEnabled = 1 << 8,
     HasPlaybackTargetAvailabilityListener = 1 << 9,
     HasAudioOrVideo = 1 << 10,
-    HasActiveAudioCaptureDevice = 1 << 11,
-    HasActiveVideoCaptureDevice = 1 << 12,
-    HasMutedAudioCaptureDevice = 1 << 13,
-    HasMutedVideoCaptureDevice = 1 << 14,
-    HasInterruptedAudioCaptureDevice = 1 << 15,
-    HasInterruptedVideoCaptureDevice = 1 << 16,
     HasUserInteractedWithMediaElement = 1 << 17,
-    HasActiveScreenCaptureDevice = 1 << 18,
-    HasMutedScreenCaptureDevice = 1 << 19,
-    HasInterruptedScreenCaptureDevice = 1 << 20,
-    HasActiveWindowCaptureDevice = 1 << 21,
-    HasMutedWindowCaptureDevice = 1 << 22,
-    HasInterruptedWindowCaptureDevice = 1 << 23,
-    HasActiveSystemAudioCaptureDevice = 1 << 24,
-    HasMutedSystemAudioCaptureDevice = 1 << 25,
-    HasInterruptedSystemAudioCaptureDevice = 1 << 26,
     HasStreamingActivity = 1 << 27,
-    IsPromptingForWindowCapture = 1 << 28,
-    IsPromptingForScreenCapture = 1 << 29,
 };
 using MediaProducerMediaStateFlags = OptionSet<MediaProducerMediaState>;
 
-enum class MediaProducerMediaCaptureKind : uint8_t {
-    Microphone = 1 << 0,
-    Camera = 1 << 1,
-    Display = 1 << 2,
-    SystemAudio = 1 << 3,
-    EveryKind = 1 << 4,
-};
 
 enum class MediaProducerMutedState : uint8_t {
     AudioIsMuted = 1 << 0,
-    AudioCaptureIsMuted = 1 << 1,
-    VideoCaptureIsMuted = 1 << 2,
-    ScreenCaptureIsMuted = 1 << 3,
-    WindowCaptureIsMuted = 1 << 4,
-    SystemAudioCaptureIsMuted = 1 << 5,
 };
 using MediaProducerMutedStateFlags = OptionSet<MediaProducerMutedState>;
 
@@ -92,44 +63,6 @@ public:
     using MutedStateFlags = MediaProducerMutedStateFlags;
 
     static constexpr MediaStateFlags IsNotPlaying = { };
-    static constexpr MediaStateFlags MicrophoneCaptureMask = { MediaState::HasActiveAudioCaptureDevice, MediaState::HasMutedAudioCaptureDevice, MediaState::HasInterruptedAudioCaptureDevice };
-    static constexpr MediaStateFlags VideoCaptureMask = { MediaState::HasActiveVideoCaptureDevice, MediaState::HasMutedVideoCaptureDevice, MediaState::HasInterruptedVideoCaptureDevice };
-
-    static constexpr MediaStateFlags ScreenCaptureMask = { MediaState::HasActiveScreenCaptureDevice, MediaState::HasMutedScreenCaptureDevice, MediaState::HasInterruptedScreenCaptureDevice };
-    static constexpr MediaStateFlags WindowCaptureMask = { MediaState::HasActiveWindowCaptureDevice, MediaState::HasMutedWindowCaptureDevice, MediaState::HasInterruptedWindowCaptureDevice };
-    static constexpr MediaStateFlags ActiveDisplayCaptureMask = { MediaState::HasActiveScreenCaptureDevice, MediaState::HasActiveWindowCaptureDevice };
-    static constexpr MediaStateFlags MutedDisplayCaptureMask = { MediaState::HasMutedScreenCaptureDevice, MediaState::HasMutedWindowCaptureDevice };
-    static constexpr MediaStateFlags IsPromptingForDisplayCaptureMask = { MediaState::IsPromptingForWindowCapture, MediaState::IsPromptingForScreenCapture };
-    static constexpr MediaStateFlags DisplayCaptureMask = { ActiveDisplayCaptureMask | MutedDisplayCaptureMask };
-
-    static constexpr MediaStateFlags SystemAudioCaptureMask = { MediaState::HasActiveSystemAudioCaptureDevice, MediaState::HasMutedSystemAudioCaptureDevice, MediaState::HasInterruptedSystemAudioCaptureDevice };
-
-    static constexpr MediaStateFlags ActiveCaptureMask = { MediaState::HasActiveAudioCaptureDevice, MediaState::HasActiveVideoCaptureDevice, MediaState::HasActiveScreenCaptureDevice, MediaState::HasActiveWindowCaptureDevice, MediaState::HasActiveSystemAudioCaptureDevice };
-    static constexpr MediaStateFlags MutedCaptureMask = { MediaState::HasMutedAudioCaptureDevice, MediaState::HasMutedVideoCaptureDevice, MediaState::HasMutedScreenCaptureDevice, MediaState::HasMutedWindowCaptureDevice, MediaState::HasMutedSystemAudioCaptureDevice };
-
-    static constexpr MediaStateFlags MediaCaptureMask = {
-        MediaState::HasActiveAudioCaptureDevice,
-        MediaState::HasMutedAudioCaptureDevice,
-        MediaState::HasInterruptedAudioCaptureDevice,
-        MediaState::HasActiveVideoCaptureDevice,
-        MediaState::HasMutedVideoCaptureDevice,
-        MediaState::HasInterruptedVideoCaptureDevice,
-        MediaState::HasActiveScreenCaptureDevice,
-        MediaState::HasMutedScreenCaptureDevice,
-        MediaState::HasInterruptedScreenCaptureDevice,
-        MediaState::HasActiveWindowCaptureDevice,
-        MediaState::HasMutedWindowCaptureDevice,
-        MediaState::HasInterruptedWindowCaptureDevice,
-        MediaState::HasActiveSystemAudioCaptureDevice,
-        MediaState::HasMutedSystemAudioCaptureDevice,
-        MediaState::HasInterruptedSystemAudioCaptureDevice,
-        MediaState::IsPromptingForWindowCapture,
-        MediaState::IsPromptingForScreenCapture,
-    };
-    static constexpr MediaStateFlags IsCapturingAudioMask = { MicrophoneCaptureMask | SystemAudioCaptureMask };
-    static constexpr MediaStateFlags IsCapturingVideoMask = { VideoCaptureMask | DisplayCaptureMask };
-
-    static bool isCapturing(MediaStateFlags state) { return state.containsAny(ActiveCaptureMask) || state.containsAny(MutedCaptureMask); }
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     static bool needsMediaCapability(MediaStateFlags state)
@@ -137,17 +70,12 @@ public:
         if (state.contains(MediaProducerMediaState::IsPlayingAudio))
             return true;
 
-        if (state.contains(MediaProducerMediaState::IsPlayingVideo))
-            return true;
-
-        return MediaProducer::isCapturing(state);
+        return state.contains(MediaProducerMediaState::IsPlayingVideo);
     }
 #endif
 
     virtual MediaStateFlags mediaState() const = 0;
 
-    static constexpr MutedStateFlags AudioAndVideoCaptureIsMuted = { MutedState::AudioCaptureIsMuted, MutedState::VideoCaptureIsMuted };
-    static constexpr MutedStateFlags MediaStreamCaptureIsMuted = { MutedState::AudioCaptureIsMuted, MutedState::VideoCaptureIsMuted, MutedState::ScreenCaptureIsMuted, MutedState::WindowCaptureIsMuted, MutedState::SystemAudioCaptureIsMuted };
 
     virtual void visibilityAdjustmentStateDidChange() { }
     virtual void pageMutedStateDidChange() = 0;

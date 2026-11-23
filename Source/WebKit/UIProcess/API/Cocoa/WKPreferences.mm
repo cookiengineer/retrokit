@@ -682,66 +682,6 @@ static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy po
     return protect(*_preferences)->mediaDevicesEnabled();
 }
 
-- (BOOL)_getUserMediaRequiresFocus
-{
-    return protect(*_preferences)->getUserMediaRequiresFocus();
-}
-
-- (void)_setGetUserMediaRequiresFocus:(BOOL)enabled
-{
-    protect(*_preferences)->setGetUserMediaRequiresFocus(enabled);
-}
-
-- (BOOL)_screenCaptureEnabled
-{
-    return protect(*_preferences)->screenCaptureEnabled();
-}
-
-- (void)_setScreenCaptureEnabled:(BOOL)enabled
-{
-    protect(*_preferences)->setScreenCaptureEnabled(enabled);
-}
-
-- (BOOL)_mockCaptureDevicesEnabled
-{
-    return protect(*_preferences)->mockCaptureDevicesEnabled();
-}
-
-- (BOOL)_mockCaptureDevicesPromptEnabled
-{
-    return protect(*_preferences)->mockCaptureDevicesPromptEnabled();
-}
-
-- (void)_setMockCaptureDevicesPromptEnabled:(BOOL)enabled
-{
-    protect(*_preferences)->setMockCaptureDevicesPromptEnabled(enabled);
-}
-
-- (BOOL)_mediaCaptureRequiresSecureConnection
-{
-    return protect(*_preferences)->mediaCaptureRequiresSecureConnection();
-}
-
-- (double)_inactiveMediaCaptureStreamRepromptIntervalInMinutes
-{
-    return protect(*_preferences)->inactiveMediaCaptureStreamRepromptIntervalInMinutes();
-}
-
-- (void)_setInactiveMediaCaptureStreamRepromptIntervalInMinutes:(double)interval
-{
-    protect(*_preferences)->setInactiveMediaCaptureStreamRepromptIntervalInMinutes(interval);
-}
-
-- (double)_inactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes
-{
-    return protect(*_preferences)->inactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes();
-}
-
-- (void)_setInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes:(double)interval
-{
-    protect(*_preferences)->setInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes(interval);
-}
-
 - (BOOL)_interruptAudioOnPageVisibilityChangeEnabled
 {
     return protect(*_preferences)->interruptAudioOnPageVisibilityChangeEnabled();
@@ -1911,15 +1851,6 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
 
 - (void)_setOfflineApplicationCacheIsEnabled:(BOOL)offlineApplicationCacheIsEnabled
 {
-}
-
-- (void)_setMediaStreamEnabled:(BOOL)enabled
-{
-}
-
-- (BOOL)_mediaStreamEnabled
-{
-    return YES;
 }
 
 - (void)_setClientBadgeEnabled:(BOOL)enabled

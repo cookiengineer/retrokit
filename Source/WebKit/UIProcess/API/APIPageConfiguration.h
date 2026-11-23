@@ -302,8 +302,6 @@ public:
     void setLimitsNavigationsToAppBoundDomains(bool limits) { m_data.limitsNavigationsToAppBoundDomains = limits; }
 #endif
 
-    void setMediaCaptureEnabled(bool value) { m_data.mediaCaptureEnabled = value; }
-    bool mediaCaptureEnabled() const { return m_data.mediaCaptureEnabled; }
 
     void setHTTPSUpgradeEnabled(bool enabled) { m_data.httpsUpgradeEnabled = enabled; }
     bool httpsUpgradeEnabled() const { return m_data.httpsUpgradeEnabled; }
@@ -599,7 +597,6 @@ private:
         bool limitsNavigationsToAppBoundDomains { false };
 #endif
 
-        bool mediaCaptureEnabled { false };
         bool httpsUpgradeEnabled { true };
         bool suppressesIncrementalRendering { false };
         bool ignoresViewportScaleLimits { false };

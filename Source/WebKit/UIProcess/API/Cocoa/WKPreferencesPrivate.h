@@ -122,12 +122,7 @@ typedef NS_ENUM(NSInteger, _WKNavigatorWebDriverActivePolicy) {
 
 @property (nonatomic, setter=_setLoadsImagesAutomatically:) BOOL _loadsImagesAutomatically WK_API_AVAILABLE(macos(10.13), ios(11.0));
 
-@property (nonatomic, setter=_setGetUserMediaRequiresFocus:) BOOL _getUserMediaRequiresFocus WK_API_AVAILABLE(macos(13.0), ios(16.0));
-@property (nonatomic, setter=_setScreenCaptureEnabled:) BOOL _screenCaptureEnabled WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
-@property (nonatomic, setter=_setMockCaptureDevicesPromptEnabled:) BOOL _mockCaptureDevicesPromptEnabled WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
 @property (nonatomic, setter=_setEnumeratingAllNetworkInterfacesEnabled:) BOOL _enumeratingAllNetworkInterfacesEnabled WK_API_AVAILABLE(macos(10.13), ios(11.0));
-@property (nonatomic, setter=_setInactiveMediaCaptureStreamRepromptIntervalInMinutes:) double _inactiveMediaCaptureStreamRepromptIntervalInMinutes WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
-@property (nonatomic, setter=_setInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes:) double _inactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes WK_API_AVAILABLE(macos(26.4), ios(26.4));
 @property (nonatomic, setter=_setInterruptAudioOnPageVisibilityChangeEnabled:) BOOL _interruptAudioOnPageVisibilityChangeEnabled WK_API_AVAILABLE(macos(10.15), ios(13.0));
 
 @property (nonatomic, setter=_setJavaScriptCanAccessClipboard:) BOOL _javaScriptCanAccessClipboard WK_API_AVAILABLE(macos(10.13), ios(11.0));
@@ -274,6 +269,5 @@ typedef NS_ENUM(NSInteger, _WKNavigatorWebDriverActivePolicy) {
 @property (nonatomic, setter=_setDisplayListDrawingEnabled:) BOOL _displayListDrawingEnabled WK_API_DEPRECATED("Display list drawing is no longer supported", macos(10.12, 14.4), ios(10.0, 17.4), visionos(1.0, 1.1));
 // FIXME: We should remove this property.
 @property (nonatomic, setter=_setOfflineApplicationCacheIsEnabled:) BOOL _offlineApplicationCacheIsEnabled WK_API_DEPRECATED("OfflineApplicationCache is no longer supported", macos(10.10, 26.4), ios(8.0, 26.4));
-@property (nonatomic, setter=_setMediaStreamEnabled:) BOOL _mediaStreamEnabled WK_API_DEPRECATED("Media stream preference is no longer supported", macos(10.14, 15.4));
 @property (nonatomic, setter=_setClientBadgeEnabled:) BOOL _clientBadgeEnabled WK_API_DEPRECATED("Client badge is no longer supported", macos(13.3, 26.0), ios(16.4, 26.0));
 @end

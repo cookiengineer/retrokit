@@ -167,8 +167,6 @@ enum {
 #endif
     PROP_ENABLE_2D_CANVAS_ACCELERATION,
     PROP_ENABLE_WRITE_CONSOLE_MESSAGES_TO_STDOUT,
-    PROP_ENABLE_MEDIA_STREAM,
-    PROP_ENABLE_MOCK_CAPTURE_DEVICES,
     PROP_ENABLE_SPATIAL_NAVIGATION,
     PROP_ENABLE_MEDIASOURCE,
     PROP_ENABLE_ENCRYPTED_MEDIA,
@@ -183,9 +181,7 @@ enum {
     PROP_ENABLE_JAVASCRIPT_MARKUP,
     PROP_ENABLE_MEDIA,
     PROP_MEDIA_CONTENT_TYPES_REQUIRING_HARDWARE_SUPPORT,
-    PROP_ENABLE_WEBRTC,
     PROP_DISABLE_WEB_SECURITY,
-    PROP_WEBRTC_UDP_PORTS_RANGE,
     N_PROPERTIES,
 };
 
@@ -368,12 +364,6 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     case PROP_ENABLE_WRITE_CONSOLE_MESSAGES_TO_STDOUT:
         webkit_settings_set_enable_write_console_messages_to_stdout(settings, g_value_get_boolean(value));
         break;
-    case PROP_ENABLE_MEDIA_STREAM:
-        webkit_settings_set_enable_media_stream(settings, g_value_get_boolean(value));
-        break;
-    case PROP_ENABLE_MOCK_CAPTURE_DEVICES:
-        webkit_settings_set_enable_mock_capture_devices(settings, g_value_get_boolean(value));
-        break;
     case PROP_ENABLE_SPATIAL_NAVIGATION:
         webkit_settings_set_enable_spatial_navigation(settings, g_value_get_boolean(value));
         break;
@@ -412,14 +402,8 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     case PROP_MEDIA_CONTENT_TYPES_REQUIRING_HARDWARE_SUPPORT:
         webkit_settings_set_media_content_types_requiring_hardware_support(settings, g_value_get_string(value));
         break;
-    case PROP_ENABLE_WEBRTC:
-        webkit_settings_set_enable_webrtc(settings, g_value_get_boolean(value));
-        break;
     case PROP_DISABLE_WEB_SECURITY:
         webkit_settings_set_disable_web_security(settings, g_value_get_boolean(value));
-        break;
-    case PROP_WEBRTC_UDP_PORTS_RANGE:
-        webkit_settings_set_webrtc_udp_ports_range(settings, g_value_get_string(value));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propId, paramSpec);
@@ -585,12 +569,6 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     case PROP_ENABLE_WRITE_CONSOLE_MESSAGES_TO_STDOUT:
         g_value_set_boolean(value, webkit_settings_get_enable_write_console_messages_to_stdout(settings));
         break;
-    case PROP_ENABLE_MEDIA_STREAM:
-        g_value_set_boolean(value, webkit_settings_get_enable_media_stream(settings));
-        break;
-    case PROP_ENABLE_MOCK_CAPTURE_DEVICES:
-        g_value_set_boolean(value, webkit_settings_get_enable_mock_capture_devices(settings));
-        break;
     case PROP_ENABLE_SPATIAL_NAVIGATION:
         g_value_set_boolean(value, webkit_settings_get_enable_spatial_navigation(settings));
         break;
@@ -629,14 +607,8 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     case PROP_MEDIA_CONTENT_TYPES_REQUIRING_HARDWARE_SUPPORT:
         g_value_set_string(value, webkit_settings_get_media_content_types_requiring_hardware_support(settings));
         break;
-    case PROP_ENABLE_WEBRTC:
-        g_value_set_boolean(value, webkit_settings_get_enable_webrtc(settings));
-        break;
     case PROP_DISABLE_WEB_SECURITY:
         g_value_set_boolean(value, webkit_settings_get_disable_web_security(settings));
-        break;
-    case PROP_WEBRTC_UDP_PORTS_RANGE:
-        g_value_set_string(value, webkit_settings_get_webrtc_udp_ports_range(settings));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propId, paramSpec);
@@ -1388,311 +1360,6 @@ static void webkit_settings_class_init(WebKitSettingsClass* klass)
             readWriteConstructParamFlags);
 
     /**
-     * WebKitSettings:enable-media-stream:
-     *
-     * Enable or disable support for MediaStream on pages. MediaStream
-     * is an experimental proposal for allowing web pages to access
-     * audio and video devices for capture.
-     *
-     * See also http://dev.w3.org/2011/webrtc/editor/getusermedia.html
-     *
-     * Since: 2.4
-     */
-    sObjProperties[PROP_ENABLE_MEDIA_STREAM] =
-        g_param_spec_boolean(
-            "enable-media-stream",
-            _("Enable MediaStream"),
-            _("Whether MediaStream content should be handled"),
-#if ENABLE(MEDIA_STREAM)
-            FEATURE_DEFAULT(MediaDevicesEnabled),
-#else
-            FALSE,
-#endif
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:enable-mock-capture-devices:
-     *
-     * Enable or disable the Mock Capture Devices. Those are fake
-     * Microphone and Camera devices to be used as MediaStream
-     * sources.
-     *
-     * Since: 2.24
-     */
-    sObjProperties[PROP_ENABLE_MOCK_CAPTURE_DEVICES] =
-        g_param_spec_boolean("enable-mock-capture-devices",
-            _("Enable mock capture devices"),
-            _("Whether we expose mock capture devices or not"),
-#if ENABLE(MEDIA_STREAM)
-            FEATURE_DEFAULT(MockCaptureDevicesEnabled),
-#else
-            FALSE,
-#endif
-            readWriteConstructParamFlags);
-
-   /**
-     * WebKitSettings:enable-spatial-navigation:
-     *
-     * Whether to enable Spatial Navigation. This feature consists in the ability
-     * to navigate between focusable elements in a Web page, such as hyperlinks
-     * and form controls, by using Left, Right, Up and Down arrow keys.
-     * For example, if a user presses the Right key, heuristics determine whether
-     * there is an element they might be trying to reach towards the right, and if
-     * there are multiple elements, which element they probably want.
-     *
-     * Since: 2.4
-     */
-    sObjProperties[PROP_ENABLE_SPATIAL_NAVIGATION] =
-        g_param_spec_boolean(
-            "enable-spatial-navigation",
-            _("Enable Spatial Navigation"),
-            _("Whether to enable Spatial Navigation support."),
-            FEATURE_DEFAULT(SpatialNavigationEnabled),
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:enable-mediasource:
-     *
-     * Enable or disable support for MediaSource on pages. MediaSource
-     * extends HTMLMediaElement to allow JavaScript to generate media
-     * streams for playback.
-     *
-     * See also http://www.w3.org/TR/media-source/
-     *
-     * Since: 2.4
-     */
-    sObjProperties[PROP_ENABLE_MEDIASOURCE] =
-        g_param_spec_boolean(
-            "enable-mediasource",
-            _("Enable MediaSource"),
-            _("Whether MediaSource should be enabled."),
-#if ENABLE(MEDIA_SOURCE)
-            FEATURE_DEFAULT(MediaSourceEnabled),
-#else
-            FALSE,
-#endif
-            readWriteConstructParamFlags);
-
-   /**
-     * WebKitSettings:enable-encrypted-media:
-     *
-     * Enable or disable support for Encrypted Media API on pages.
-     * EncryptedMedia is an experimental JavaScript API for playing encrypted media in HTML.
-     * This property will only work as intended if the EncryptedMedia feature is enabled at build time
-     * with the ENABLE_ENCRYPTED_MEDIA flag.
-     *
-     * See https://www.w3.org/TR/encrypted-media/
-     *
-     * Since: 2.20
-     */
-    sObjProperties[PROP_ENABLE_ENCRYPTED_MEDIA] =
-        g_param_spec_boolean(
-            "enable-encrypted-media",
-            _("Enable EncryptedMedia"),
-            _("Whether EncryptedMedia should be enabled."),
-#if ENABLE(ENCRYPTED_MEDIA)
-            FEATURE_DEFAULT(EncryptedMediaAPIEnabled),
-#else
-            FALSE,
-#endif
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:enable-media-capabilities:
-     *
-     * Enable or disable support for MediaCapabilities on pages. This
-     * specification intends to provide APIs to allow websites to make an optimal
-     * decision when picking media content for the user. The APIs will expose
-     * information about the decoding and encoding capabilities for a given format
-     * but also output capabilities to find the best match based on the device’s
-     * display.
-     *
-     * See also https://wicg.github.io/media-capabilities/
-     *
-     * Since: 2.22
-     */
-    sObjProperties[PROP_ENABLE_MEDIA_CAPABILITIES] =
-        g_param_spec_boolean(
-            "enable-media-capabilities",
-            _("Enable MediaCapabilities"),
-            _("Whether MediaCapabilities should be enabled."),
-            FEATURE_DEFAULT(MediaCapabilitiesEnabled),
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:allow-file-access-from-file-urls:
-     *
-     * Whether file access is allowed from file URLs. By default, when
-     * something is loaded in a #WebKitWebView using a file URI, cross
-     * origin requests to other file resources are not allowed. This
-     * setting allows you to change that behavior, so that it would be
-     * possible to do a XMLHttpRequest of a local file, for example.
-     *
-     * Since: 2.10
-     */
-    sObjProperties[PROP_ALLOW_FILE_ACCESS_FROM_FILE_URLS] =
-        g_param_spec_boolean(
-            "allow-file-access-from-file-urls",
-            _("Allow file access from file URLs"),
-            _("Whether file access is allowed from file URLs."),
-            FEATURE_DEFAULT(AllowFileAccessFromFileURLs),
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:allow-universal-access-from-file-urls:
-     *
-     * Whether or not JavaScript running in the context of a file scheme URL
-     * should be allowed to access content from any origin.  By default, when
-     * something is loaded in a #WebKitWebView using a file scheme URL,
-     * access to the local file system and arbitrary local storage is not
-     * allowed. This setting allows you to change that behavior, so that
-     * it would be possible to use local storage, for example.
-     *
-     * Since: 2.14
-     */
-    sObjProperties[PROP_ALLOW_UNIVERSAL_ACCESS_FROM_FILE_URLS] =
-        g_param_spec_boolean(
-            "allow-universal-access-from-file-urls",
-            _("Allow universal access from the context of file scheme URLs"),
-            _("Whether or not universal access is allowed from the context of file scheme URLs"),
-            FEATURE_DEFAULT(AllowUniversalAccessFromFileURLs),
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:allow-top-navigation-to-data-urls:
-     *
-     * Whether or not the top frame is allowed to navigate to data URLs. It is disabled by default
-     * due to the risk it poses when loading untrusted URLs, with data URLs being used in scamming
-     * and phishing attacks. In contrast, a scenario where it could be enabled could be an app that
-     * embeds a WebView and you have control of the pages being shown instead of a generic browser.
-     *
-     * Since: 2.28
-     */
-    sObjProperties[PROP_ALLOW_TOP_NAVIGATION_TO_DATA_URLS] =
-        g_param_spec_boolean(
-            "allow-top-navigation-to-data-urls",
-            _("Allow top frame navigation to data URLs"),
-            _("Whether or not top frame navigation is allowed to data URLs"),
-            FEATURE_DEFAULT(AllowTopNavigationToDataURLs),
-            readWriteConstructParamFlags);
-
-#if PLATFORM(GTK)
-    /**
-     * WebKitSettings:hardware-acceleration-policy:
-     *
-     * The #WebKitHardwareAccelerationPolicy to decide how to enable and disable
-     * hardware acceleration. Disabling hardware acceleration might
-     * cause some websites to not render correctly or consume more CPU.
-     *
-     * Note that changing this setting might not be possible if hardware acceleration is not
-     * supported by the hardware or the system. In that case, you can get the value to know the
-     * actual policy being used, but changing the setting will not have any effect.
-     *
-     * Since: 2.16
-     */
-    sObjProperties[PROP_HARDWARE_ACCELERATION_POLICY] =
-        g_param_spec_enum(
-            "hardware-acceleration-policy",
-            _("Hardware Acceleration Policy"),
-            _("The policy to decide how to enable and disable hardware acceleration"),
-            WEBKIT_TYPE_HARDWARE_ACCELERATION_POLICY,
-            WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS,
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:enable-back-forward-navigation-gestures:
-     *
-     * Enable or disable horizontal swipe gesture for back-forward navigation.
-     *
-     * Since: 2.24
-     */
-    sObjProperties[PROP_ENABLE_BACK_FORWARD_NAVIGATION_GESTURES] =
-        g_param_spec_boolean(
-            "enable-back-forward-navigation-gestures",
-            _("Enable back-forward navigation gestures"),
-            _("Whether horizontal swipe gesture will trigger back-forward navigation"),
-            FALSE,
-            readWriteConstructParamFlags);
-#endif // PLATFORM(GTK)
-
-    /**
-     * WebKitSettings:enable-javascript-markup:
-     *
-     * Determines whether or not JavaScript markup is allowed in document. When this setting is disabled,
-     * all JavaScript-related elements and attributes are removed from the document during parsing. Note that
-     * executing JavaScript is still allowed if #WebKitSettings:enable-javascript is %TRUE.
-     *
-     * Since: 2.24
-     */
-    sObjProperties[PROP_ENABLE_JAVASCRIPT_MARKUP] =
-        g_param_spec_boolean(
-            "enable-javascript-markup",
-            _("Enable JavaScript Markup"),
-            _("Enable JavaScript in document markup."),
-            FEATURE_DEFAULT(JavaScriptMarkupEnabled),
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:enable-media:
-     *
-     * Enable or disable support for media playback on pages. This setting is enabled by
-     * default. Disabling it means `<audio>`, `<track>` and `<video>` elements will have
-     * playback support disabled.
-     *
-     * Since: 2.26
-     */
-    sObjProperties[PROP_ENABLE_MEDIA] =
-        g_param_spec_boolean(
-            "enable-media",
-            _("Enable media"),
-            _("Whether media content should be handled"),
-#if ENABLE(VIDEO)
-            FEATURE_DEFAULT(MediaEnabled),
-#else
-            TRUE,
-#endif
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:media-content-types-requiring-hardware-support:
-     *
-     * List of media content types requiring hardware support, split by colons (:).
-     * For example: 'video/webm; codecs="vp*":video/mp4; codecs="avc*":video/&ast; codecs="av1*"'.
-     *
-     * Since: 2.30
-     */
-    sObjProperties[PROP_MEDIA_CONTENT_TYPES_REQUIRING_HARDWARE_SUPPORT] =
-        g_param_spec_string(
-            "media-content-types-requiring-hardware-support",
-            _("Media content types requiring hardware support"),
-            _("List of media content types requiring hardware support."),
-            nullptr, // A null string forces the default value.
-            readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:enable-webrtc:
-     *
-     * Enable WebRTC support for loaded pages.
-     *
-     * Enabling this setting implies that [property@Settings:enable-media-stream]
-     * will be enabled as well.
-     *
-     * See also https://www.w3.org/TR/webrtc/
-     *
-     * Since: 2.38
-     */
-    sObjProperties[PROP_ENABLE_WEBRTC] = g_param_spec_boolean(
-        "enable-webrtc",
-        _("Enable WebRTC"),
-        _("Whether WebRTC content should be handled"),
-#if ENABLE(WEB_RTC)
-        FEATURE_DEFAULT(PeerConnectionEnabled),
-#else
-        FALSE,
-#endif
-        readWriteConstructParamFlags);
-
-    /**
      * WebKitSettings:disable-web-security:
      *
      * Enable or disable support for Web Security on pages.
@@ -1709,26 +1376,6 @@ static void webkit_settings_class_init(WebKitSettingsClass* klass)
         _("Disable web security"),
         _("Whether web security should be disabled."),
         !FEATURE_DEFAULT(WebSecurityEnabled),
-        readWriteConstructParamFlags);
-
-    /**
-     * WebKitSettings:webrtc-udp-ports-range:
-     *
-     * Allow customization of the WebRTC UDP ports range.
-     *
-     * In some constrained environments where a firewall blocks UDP network traffic except on a
-     * specific port range, this setting can be used to give hints to the WebRTC backend regarding
-     * which ports to allocate. The format is min-port:max-port, so for instance 20000:30000. The
-     * default empty string value means the OS will use no hints from the WebRTC backend. Using 0
-     * for one of the values is allowed and means the value is unspecified.
-     *
-     * Since: 2.48
-     */
-    sObjProperties[PROP_WEBRTC_UDP_PORTS_RANGE] = g_param_spec_string(
-        "webrtc-udp-ports-range",
-        _("WebRTC UDP ports range"),
-        _("WebRTC UDP ports range, the format is min-port:max-port"),
-        nullptr, // A null string forces the default value.
         readWriteConstructParamFlags);
 
     g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties.data());
@@ -3490,127 +3137,11 @@ void webkit_settings_set_enable_write_console_messages_to_stdout(WebKitSettings*
     g_object_notify_by_pspec(G_OBJECT(settings), sObjProperties[PROP_ENABLE_WRITE_CONSOLE_MESSAGES_TO_STDOUT]);
 }
 
-/**
- * webkit_settings_get_enable_media_stream:
- * @settings: a #WebKitSettings
- *
- * Get the #WebKitSettings:enable-media-stream property.
- *
- * Returns: %TRUE If mediastream support is enabled or %FALSE otherwise.
- *
- * Since: 2.4
- */
-gboolean webkit_settings_get_enable_media_stream(WebKitSettings* settings)
-{
-    g_return_val_if_fail(WEBKIT_IS_SETTINGS(settings), FALSE);
 
-    // FIXME: We may want to deprecate this and add new API for media devices.
-    return settings->priv->preferences->mediaDevicesEnabled();
-}
 
-/**
- * webkit_settings_set_enable_media_stream:
- * @settings: a #WebKitSettings
- * @enabled: Value to be set
- *
- * Set the #WebKitSettings:enable-media-stream property.
- *
- * Since: 2.4
- */
-void webkit_settings_set_enable_media_stream(WebKitSettings* settings, gboolean enabled)
-{
-    g_return_if_fail(WEBKIT_IS_SETTINGS(settings));
 
-    WebKitSettingsPrivate* priv = settings->priv;
-    bool currentValue = priv->preferences->mediaDevicesEnabled();
-    if (currentValue == enabled)
-        return;
 
-    priv->preferences->setMediaDevicesEnabled(enabled);
-    g_object_notify_by_pspec(G_OBJECT(settings), sObjProperties[PROP_ENABLE_MEDIA_STREAM]);
-}
 
-/**
- * webkit_settings_get_enable_webrtc:
- * @settings: a #WebKitSettings
- *
- * Get the [property@Settings:enable-webrtc] property.
- *
- * Returns: %TRUE If WebRTC support is enabled or %FALSE otherwise.
- *
- * Since: 2.38
- */
-gboolean webkit_settings_get_enable_webrtc(WebKitSettings* settings)
-{
-    g_return_val_if_fail(WEBKIT_IS_SETTINGS(settings), FALSE);
-
-    return settings->priv->preferences->peerConnectionEnabled();
-}
-
-/**
- * webkit_settings_set_enable_webrtc:
- * @settings: a #WebKitSettings
- * @enabled: Value to be set
- *
- * Set the [property@Settings:enable-webrtc] property.
- *
- * Setting this property to %TRUE implies the media-stream web-setting will also be enabled.
- *
- * Since: 2.38
- */
-void webkit_settings_set_enable_webrtc(WebKitSettings* settings, gboolean enabled)
-{
-    g_return_if_fail(WEBKIT_IS_SETTINGS(settings));
-
-    WebKitSettingsPrivate* priv = settings->priv;
-    bool currentValue = priv->preferences->peerConnectionEnabled();
-    if (currentValue == enabled)
-        return;
-
-    if (enabled)
-        webkit_settings_set_enable_media_stream(settings, enabled);
-    priv->preferences->setPeerConnectionEnabled(enabled);
-    g_object_notify_by_pspec(G_OBJECT(settings), sObjProperties[PROP_ENABLE_WEBRTC]);
-}
-
-/**
- * webkit_settings_get_enable_mock_capture_devices:
- * @settings: a #WebKitSettings
- *
- * Get the #WebKitSettings:enable-mock-capture-devices property.
- *
- * Returns: %TRUE If mock capture devices is enabled or %FALSE otherwise.
- *
- * Since: 2.24
- */
-gboolean webkit_settings_get_enable_mock_capture_devices(WebKitSettings* settings)
-{
-    g_return_val_if_fail(WEBKIT_IS_SETTINGS(settings), FALSE);
-
-    return settings->priv->preferences->mockCaptureDevicesEnabled();
-}
-
-/**
- * webkit_settings_set_enable_mock_capture_devices:
- * @settings: a #WebKitSettings
- * @enabled: Value to be set
- *
- * Set the #WebKitSettings:enable-mock-capture-devices property.
- *
- * Since: 2.24
- */
-void webkit_settings_set_enable_mock_capture_devices(WebKitSettings* settings, gboolean enabled)
-{
-    g_return_if_fail(WEBKIT_IS_SETTINGS(settings));
-
-    WebKitSettingsPrivate* priv = settings->priv;
-    bool currentValue = priv->preferences->mockCaptureDevicesEnabled();
-    if (currentValue == enabled)
-        return;
-
-    priv->preferences->setMockCaptureDevicesEnabled(enabled);
-    g_object_notify_by_pspec(G_OBJECT(settings), sObjProperties[PROP_ENABLE_MOCK_CAPTURE_DEVICES]);
-}
 
 /**
  * webkit_settings_set_enable_spatial_navigation:
@@ -4116,17 +3647,7 @@ void webkit_settings_set_enable_media(WebKitSettings* settings, gboolean enabled
     g_object_notify_by_pspec(G_OBJECT(settings), sObjProperties[PROP_ENABLE_MEDIA]);
 }
 
-void webkitSettingsSetMediaCaptureRequiresSecureConnection(WebKitSettings* settings, bool required)
-{
-    WebKitSettingsPrivate* priv = settings->priv;
-    priv->preferences->setMediaCaptureRequiresSecureConnection(required);
-}
 
-void webkitSettingsSetGetUserMediaRequiresFocus(WebKitSettings* settings, bool required)
-{
-    WebKitSettingsPrivate* priv = settings->priv;
-    priv->preferences->setGetUserMediaRequiresFocus(required);
-}
 
 /**
  * webkit_settings_get_media_content_types_requiring_hardware_support:
@@ -4429,50 +3950,4 @@ gboolean webkit_settings_apply_from_key_file(WebKitSettings* settings, GKeyFile*
     return TRUE;
 }
 
-/**
- * webkit_settings_get_webrtc_udp_ports_range:
- * @settings: a #WebKitSettings
- *
- * Get the [property@Settings:webrtc-udp-ports-range] property.
- *
- * Returns: The WebRTC UDP ports range, or %NULL if un-set.
- *
- * Since: 2.48
- */
-const gchar*
-webkit_settings_get_webrtc_udp_ports_range(WebKitSettings* settings)
-{
-    g_return_val_if_fail(WEBKIT_IS_SETTINGS(settings), nullptr);
-#if ENABLE(WEB_RTC)
-    return settings->priv->webrtcUDPPortsRange.data();
-#else
-    return nullptr;
-#endif
-}
 
-/**
- * webkit_settings_set_webrtc_udp_ports_range:
- * @settings: a #WebKitSettings
- * @udp_port_range: Value to be set
- *
- * Set the [property@Settings:webrtc-udp-ports-range] property.
- *
- * Since: 2.48
- */
-void
-webkit_settings_set_webrtc_udp_ports_range(WebKitSettings* settings, const gchar* udpPortsRange)
-{
-    g_return_if_fail(WEBKIT_IS_SETTINGS(settings));
-#if ENABLE(WEB_RTC)
-    WebKitSettingsPrivate* priv = settings->priv;
-    if (!g_strcmp0(priv->webrtcUDPPortsRange.data(), udpPortsRange))
-        return;
-
-    auto portRange = String::fromLatin1(udpPortsRange);
-    priv->preferences->setWebRTCUDPPortRange(portRange);
-    priv->webrtcUDPPortsRange = portRange.utf8();
-    g_object_notify_by_pspec(G_OBJECT(settings), sObjProperties[PROP_WEBRTC_UDP_PORTS_RANGE]);
-#else
-    UNUSED_PARAM(udpPortsRange);
-#endif
-}

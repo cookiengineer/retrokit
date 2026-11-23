@@ -246,7 +246,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
     WebProcess/WebPage/RemoteLayerTree/RemoteScrollingCoordinator
 
     WebProcess/cocoa/PlaybackSessionManager
-    WebProcess/cocoa/RemoteCaptureSampleManager
     WebProcess/cocoa/VideoPresentationManager
 )
 

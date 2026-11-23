@@ -56,12 +56,6 @@ typedef NS_ENUM(NSInteger, WKPermissionDecision) {
     WKPermissionDecisionDeny,
 } WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
-typedef NS_ENUM(NSInteger, WKMediaCaptureType) {
-    WKMediaCaptureTypeCamera,
-    WKMediaCaptureTypeMicrophone,
-    WKMediaCaptureTypeCameraAndMicrophone,
-} WK_API_AVAILABLE(macos(12.0), ios(15.0));
-
 /*! @enum WKDialogResult
 @abstract Constants returned by showLockdownModeFirstUseMessage to indicate how WebKit should treat first use.
 @constant WKDialogResultShowDefault Indicates that the client did not display a first use message. WebKit should show the default.
@@ -153,16 +147,6 @@ WK_SWIFT_UI_ACTOR
  */
 - (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(nullable NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(WK_SWIFT_UI_ACTOR void (^)(NSString * _Nullable result))completionHandler;
 
-
-/*! @abstract A delegate to request permission for microphone audio and camera video access.
- @param webView The web view invoking the delegate method.
- @param origin The origin of the page.
- @param frame Information about the frame whose JavaScript initiated this call.
- @param type The type of capture (camera, microphone).
- @param decisionHandler The completion handler to call once the decision is made
- @discussion If not implemented, the result is the same as calling the decisionHandler with WKPermissionDecisionPrompt.
- */
-- (void)webView:(WKWebView *)webView requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame type:(WKMediaCaptureType)type decisionHandler:(WK_SWIFT_UI_ACTOR void (^)(WKPermissionDecision decision))decisionHandler WK_SWIFT_ASYNC_NAME(webView(_:decideMediaCapturePermissionsFor:initiatedBy:type:)) WK_SWIFT_ASYNC(5) WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
 #if TARGET_OS_IPHONE
 

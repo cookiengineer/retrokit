@@ -340,7 +340,6 @@ public:
 
     WEBCORE_EXPORT String domainForCachePartition() const;
 
-    bool allowsMediaDevices() const;
     ServiceWorker* activeServiceWorker() const { return m_activeServiceWorker.get(); }
     void setActiveServiceWorker(RefPtr<ServiceWorker>&&);
 

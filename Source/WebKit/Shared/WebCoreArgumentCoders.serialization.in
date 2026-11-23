@@ -44,16 +44,11 @@ enum class WebCore::NotificationEventType : bool;
 
 enum class WebCore::PermissionName : uint8_t {
     BackgroundFetch,
-    Bluetooth,
-    Camera,
-    DisplayCapture,
-    Microphone,
     Midi,
     Nfc,
     Notifications,
     Push,
     ScreenWakeLock,
-    SpeakerSelection
     StorageAccess
 };
 
@@ -182,15 +177,6 @@ enum class WebCore::ContentSecurityPolicyModeForExtension : uint8_t {
     None,
     ManifestV2,
     ManifestV3
-};
-
-header: <WebCore/MediaProducer.h>
-enum class WebCore::MediaProducerMediaCaptureKind : uint8_t {
-    Microphone,
-    Camera,
-    Display,
-    SystemAudio,
-    EveryKind,
 };
 
 header: <WebCore/ScreenOrientationType.h>
@@ -1203,12 +1189,6 @@ struct WebCore::CompositionUnderline {
     WebCore::CompositionUnderlineColor compositionUnderlineColor;
     WebCore::Color color;
     bool thick;
-};
-
-enum class WebCore::MediaCaptureType : uint8_t {
-    MediaCaptureTypeNone,
-    MediaCaptureTypeUser,
-    MediaCaptureTypeEnvironment
 };
 
 #if ENABLE(ATTACHMENT_ELEMENT)
@@ -4085,15 +4065,6 @@ struct WebCore::ServiceWorkerContextData {
     Vector<WebCore::ServiceWorkerRoute> routes;
 };
 
-#if HAVE(SCREEN_CAPTURE_KIT)
-header: <WebCore/DisplayCapturePromptType.h>
-enum class WebCore::DisplayCapturePromptType : uint8_t {
-    Window,
-    Screen,
-    UserChoose
-};
-#endif
-
 header: <JavaScriptCore/ArrayBuffer.h>
 [RefCounted, CustomHeader] class JSC::ArrayBuffer {
     Vector<uint8_t> toVector();
@@ -5725,7 +5696,6 @@ header: <WebCore/InspectorBackendClient.h>
 enum class WebCore::InspectorBackendClientDeveloperPreference : uint8_t {
     PrivateClickMeasurementDebugModeEnabled,
     ITPDebugModeEnabled,
-    MockCaptureDevicesEnabled,
     NeedsSiteSpecificQuirks,
 };
 
@@ -6546,10 +6516,6 @@ struct WebCore::OwnerPermissionsPolicyData {
 };
 
 [Nested] enum class WebCore::PermissionsPolicy::Feature : uint8_t {
-    Camera,
-    Microphone,
-    SpeakerSelection,
-    DisplayCapture,
     Payment,
     ScreenWakeLock,
     SyncXHR,

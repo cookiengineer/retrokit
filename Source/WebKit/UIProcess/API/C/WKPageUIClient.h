@@ -131,7 +131,6 @@ typedef void (*WKPageHideColorPickerCallback)(WKPageRef page, const void* client
 typedef void (*WKPageUnavailablePluginButtonClickedCallback)(WKPageRef page, WKPluginUnavailabilityReason pluginUnavailabilityReason, WKDictionaryRef pluginInfoDictionary, const void* clientInfo);
 typedef void (*WKPagePinnedStateDidChangeCallback)(WKPageRef page, const void* clientInfo);
 typedef void (*WKPageIsPlayingAudioDidChangeCallback)(WKPageRef page, const void* clientInfo);
-typedef void (*WKPageDecidePolicyForUserMediaPermissionRequestCallback)(WKPageRef page, WKFrameRef frame, WKSecurityOriginRef userMediaDocumentOrigin, WKSecurityOriginRef topLevelDocumentOrigin, WKUserMediaPermissionRequestRef permissionRequest, const void* clientInfo);
 typedef void (*WKPageDidClickAutoFillButtonCallback)(WKPageRef page, WKTypeRef userData, const void *clientInfo);
 typedef void (*WKHandleAutoplayEventCallback)(WKPageRef page, WKAutoplayEvent event, WKAutoplayEventFlags flags, const void* clientInfo);
 typedef void (*WKFullscreenMayReturnToInlineCallback)(WKPageRef page, const void* clientInfo);
@@ -502,7 +501,6 @@ typedef struct WKPageUIClientV5 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm;
@@ -574,7 +572,6 @@ typedef struct WKPageUIClientV6 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -586,7 +583,7 @@ typedef struct WKPageUIClientV6 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 } WKPageUIClientV6;
 
 typedef struct WKPageUIClientV7 {
@@ -653,7 +650,6 @@ typedef struct WKPageUIClientV7 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -665,7 +661,7 @@ typedef struct WKPageUIClientV7 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -736,7 +732,6 @@ typedef struct WKPageUIClientV8 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
     
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -748,7 +743,7 @@ typedef struct WKPageUIClientV8 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -823,7 +818,6 @@ typedef struct WKPageUIClientV9 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -835,7 +829,7 @@ typedef struct WKPageUIClientV9 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -913,7 +907,6 @@ typedef struct WKPageUIClientV10 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
     
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -925,7 +918,7 @@ typedef struct WKPageUIClientV10 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1007,7 +1000,6 @@ typedef struct WKPageUIClientV11 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1019,7 +1011,7 @@ typedef struct WKPageUIClientV11 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1104,7 +1096,6 @@ typedef struct WKPageUIClientV12 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
     
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1116,7 +1107,7 @@ typedef struct WKPageUIClientV12 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1204,7 +1195,6 @@ typedef struct WKPageUIClientV13 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1216,7 +1206,7 @@ typedef struct WKPageUIClientV13 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1306,7 +1296,6 @@ typedef struct WKPageUIClientV14 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1318,7 +1307,7 @@ typedef struct WKPageUIClientV14 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1411,7 +1400,6 @@ typedef struct WKPageUIClientV15 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1423,7 +1411,7 @@ typedef struct WKPageUIClientV15 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1519,7 +1507,6 @@ typedef struct WKPageUIClientV16 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1531,7 +1518,7 @@ typedef struct WKPageUIClientV16 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1630,7 +1617,6 @@ typedef struct WKPageUIClientV17 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1642,7 +1628,7 @@ typedef struct WKPageUIClientV17 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1741,7 +1727,6 @@ typedef struct WKPageUIClientV18 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1753,7 +1738,7 @@ typedef struct WKPageUIClientV18 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1854,7 +1839,6 @@ typedef struct WKPageUIClientV19 {
     WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
 
     // Version 5.
-    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
     WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
     WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
     WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
@@ -1866,7 +1850,7 @@ typedef struct WKPageUIClientV19 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+    void*                                                               unused6;
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;

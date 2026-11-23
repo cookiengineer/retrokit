@@ -51,7 +51,6 @@ TextStream& operator<<(TextStream& ts, OptionSet<ActivityState> flags)
     appendIf(ActivityState::IsVisuallyIdle, "visually idle");
     appendIf(ActivityState::IsAudible, "audible");
     appendIf(ActivityState::IsLoading, "loading");
-    appendIf(ActivityState::IsCapturingMedia, "capturing media");
     appendIf(ActivityState::IsConnectedToHardwareConsole, "attached to hardware console");
 
     return ts;

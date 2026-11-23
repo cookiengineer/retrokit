@@ -28,15 +28,10 @@
 enum PermissionName {
     // FIXME: update the list to match spec when new features are implemented.
     "background-fetch",
-    "bluetooth",
-    "camera",
-    "display-capture",
-    "microphone",
     "midi",
     "nfc",
     "notifications",
     "push",
     "screen-wake-lock",
-    "speaker-selection",
     "storage-access"
 };

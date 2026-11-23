@@ -138,7 +138,6 @@ template: struct WebCore::SleepDisablerIdentifierType
 template: struct WebCore::TimelineIdentifierType
 #endif
 template: struct WebCore::UserGestureTokenIdentifierType
-template: struct WebCore::UserMediaRequestIdentifierType
 template: struct WebCore::WebTransportStreamIdentifierType
 template: struct WebCore::WebTransportSendGroupIdentifierType
 template: struct WebKit::AuthenticationChallengeIdentifierType

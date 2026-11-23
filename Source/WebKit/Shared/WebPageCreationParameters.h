@@ -219,7 +219,6 @@ struct WebPageCreationParameters {
     WebCore::IntDegrees deviceOrientation { 0 };
     HardwareKeyboardState hardwareKeyboardState { };
     bool canShowWhileLocked { false };
-    bool isCapturingScreen { false };
     WebCore::Color insertionPointColor { };
 #endif
 #if PLATFORM(COCOA)
@@ -291,12 +290,6 @@ struct WebPageCreationParameters {
     bool crossOriginAccessControlCheckEnabled { true };
     String processDisplayName { };
 
-    bool shouldCaptureAudioInUIProcess { false };
-    bool shouldCaptureAudioInGPUProcess { false };
-    bool shouldCaptureVideoInUIProcess { false };
-    bool shouldCaptureVideoInGPUProcess { false };
-    bool shouldCaptureDisplayInUIProcess { false };
-    bool shouldCaptureDisplayInGPUProcess { false };
     bool shouldRenderCanvasInGPUProcess { false };
     bool shouldRenderDOMInGPUProcess { false };
     bool shouldPlayMediaInGPUProcess { false };

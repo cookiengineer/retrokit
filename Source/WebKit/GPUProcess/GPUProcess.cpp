@@ -399,11 +399,6 @@ void GPUProcess::releaseSnapshot(RemoteSnapshotIdentifier identifier)
 
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-void GPUProcess::promptForGetDisplayMedia(WebCore::DisplayCapturePromptType type, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&& completionHandler)
-{
-    WebCore::ScreenCaptureKitSharingSessionManager::singleton().promptForGetDisplayMedia(type, WTF::move(completionHandler));
-}
-
 void GPUProcess::cancelGetDisplayMediaPrompt()
 {
     WebCore::ScreenCaptureKitSharingSessionManager::singleton().cancelGetDisplayMediaPrompt();

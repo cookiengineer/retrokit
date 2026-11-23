@@ -331,7 +331,6 @@ enum class FireEvents : bool;
 enum class FocusDirection : uint8_t;
 enum class FocusPreviousElement : bool;
 enum class FocusTrigger : uint8_t;
-enum class MediaProducerMediaCaptureKind : uint8_t;
 enum class MediaProducerMediaState : uint32_t;
 enum class MediaProducerMutedState : uint8_t;
 enum class MutationObserverOptionType : uint8_t;
@@ -1689,7 +1688,6 @@ public:
     WEBCORE_EXPORT void removeAudioProducer(MediaProducer&);
     MediaProducerMediaStateFlags mediaState() const { return m_mediaState; }
     void noteUserInteractionWithMediaElement();
-    bool NODELETE isCapturing() const;
     WEBCORE_EXPORT void updateIsPlayingMedia();
 
     void pageMutedStateDidChange();

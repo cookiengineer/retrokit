@@ -150,9 +150,6 @@ private:
 #endif
         bool needsFontAttributes() const final { return m_uiDelegate && m_uiDelegate->m_delegateMethods.webViewDidChangeFontAttributes; }
         void didChangeFontAttributes(const WebCore::FontAttributes&) final;
-        void decidePolicyForScreenCaptureUnmuting(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::FrameInfoData&&, API::SecurityOrigin&, API::SecurityOrigin&, CompletionHandler<void(bool isAllowed)>&&) final;
-        void mediaCaptureStateDidChange(WebCore::MediaProducerMediaStateFlags) final;
-        void callDisplayCapturePermissionDelegate(WebPageProxy&, WebFrameProxy&, FrameInfoData&&, API::SecurityOrigin&, API::SecurityOrigin&, UserMediaPermissionRequestProxy&);
         void printFrame(WebPageProxy&, WebFrameProxy&, const WebCore::FloatSize& pdfFirstPageSize, CompletionHandler<void()>&&) final;
 #if PLATFORM(IOS_FAMILY)
 #if HAVE(APP_LINKS)
@@ -262,7 +259,6 @@ private:
         bool webViewWillEnterFullscreen : 1;
         bool webViewDidEnterFullscreen : 1;
         bool webViewDidExitFullscreen : 1;
-        bool webViewMediaCaptureStateDidChange : 1;
         bool webViewDidChangeFontAttributes : 1;
 #if PLATFORM(IOS_FAMILY)
 #if HAVE(APP_LINKS)

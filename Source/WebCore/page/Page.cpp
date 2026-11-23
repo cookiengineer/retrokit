@@ -2980,7 +2980,7 @@ void Page::updateTimerThrottlingState()
     // If the page is visible (but idle), there is any activity (loading, media playing, etc), or per setting,
     // we allow timer throttling, but not increasing timer throttling.
     if (!m_settings->hiddenPageDOMTimerThrottlingAutoIncreases()
-        || m_activityState.containsAny({ActivityState::IsVisible, ActivityState::IsAudible, ActivityState::IsLoading, ActivityState::IsCapturingMedia })) {
+        || m_activityState.containsAny({ActivityState::IsVisible, ActivityState::IsAudible, ActivityState::IsLoading })) {
         setTimerThrottlingState(TimerThrottlingState::Enabled);
         return;
     }
@@ -3183,11 +3183,6 @@ void Page::setShouldSuppressHDR(bool shouldSuppressHDR)
 }
 
 
-void Page::stopMediaCapture(MediaProducerMediaCaptureKind kind)
-{
-    UNUSED_PARAM(kind);
-}
-
 bool Page::mediaPlaybackExists()
 {
 #if ENABLE(VIDEO)
@@ -3316,7 +3311,7 @@ void Page::setActivityState(OptionSet<ActivityState> activityState)
             view->updateTiledBackingAdaptiveSizing();
     }
 
-    if (changed.containsAny({ActivityState::IsVisible, ActivityState::IsVisuallyIdle, ActivityState::IsAudible, ActivityState::IsLoading, ActivityState::IsCapturingMedia }))
+    if (changed.containsAny({ActivityState::IsVisible, ActivityState::IsVisuallyIdle, ActivityState::IsAudible, ActivityState::IsLoading }))
         updateTimerThrottlingState();
 
     for (CheckedRef observer : m_activityStateChangeObservers)

@@ -63,7 +63,6 @@
 #import "_WKInspectorInternal.h"
 #import "_WKModalContainerInfoInternal.h"
 #import "_WKWebAuthenticationPanelInternal.h"
-#import <AVFoundation/AVCaptureDevice.h>
 #import <AVFoundation/AVMediaFormat.h>
 #import <WebCore/AutoplayEvent.h>
 #import <WebCore/DataDetection.h>
@@ -191,7 +190,6 @@ void UIDelegate::setDelegate(id<WKUIDelegate> delegate)
 #endif
     m_delegateMethods.presentingViewControllerForWebView = [delegate respondsToSelector:@selector(_presentingViewControllerForWebView:)];
 
-    m_delegateMethods.webViewMediaCaptureStateDidChange = [delegate respondsToSelector:@selector(_webView:mediaCaptureStateDidChange:)];
     m_delegateMethods.webViewDidChangeFontAttributes = [delegate respondsToSelector:@selector(_webView:didChangeFontAttributes:)];
     m_delegateMethods.dataDetectionContextForWebView = [delegate respondsToSelector:@selector(_dataDetectionContextForWebView:)];
     m_delegateMethods.webViewImageOrMediaDocumentSizeChanged = [delegate respondsToSelector:@selector(_webView:imageOrMediaDocumentSizeChanged:)];
@@ -1159,98 +1157,6 @@ void UIDelegate::UIClient::didChangeFontAttributes(const WebCore::FontAttributes
 
     RetainPtr privateUIDelegate = uiDelegatePrivate();
     [privateUIDelegate _webView:uiDelegate->m_webView.get().get() didChangeFontAttributes:fontAttributes.createDictionary().get()];
-}
-
-void UIDelegate::UIClient::callDisplayCapturePermissionDelegate(WebPageProxy& page, WebFrameProxy& frame, FrameInfoData&& frameInfo, API::SecurityOrigin& userMediaOrigin, API::SecurityOrigin& topLevelOrigin, UserMediaPermissionRequestProxy& request)
-{
-    RefPtr uiDelegate = m_uiDelegate.get();
-    RetainPtr delegate = uiDelegatePrivate();
-    ASSERT([delegate respondsToSelector:@selector(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)]);
-
-    auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:));
-    auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTF::move(checker)](WKDisplayCapturePermissionDecision decision) mutable {
-        if (checker->completionHandlerHasBeenCalled())
-            return;
-        checker->didCallCompletionHandler();
-
-        ensureOnMainRunLoop([protectedRequest = WTF::move(protectedRequest), decision]() {
-            switch (decision) {
-            case WKDisplayCapturePermissionDecisionScreenPrompt:
-                protectedRequest->promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::Screen);
-                break;
-            case WKDisplayCapturePermissionDecisionWindowPrompt: {
-                protectedRequest->promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::Window);
-                break;
-            }
-            case WKDisplayCapturePermissionDecisionDeny:
-                protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
-                break;
-            }
-        });
-    });
-
-    std::optional<WebCore::FrameIdentifier> mainFrameID;
-    if (auto* mainFrame = frame.page() ? frame.page()->mainFrame() : nullptr)
-        mainFrameID = mainFrame->frameID();
-    RetainPtr<WKFrameInfo> frameInfoWrapper = wrapper(API::FrameInfo::create(WTF::move(frameInfo)));
-
-    BOOL requestSystemAudio = !!request.requiresDisplayCaptureWithAudio();
-    [delegate _webView:uiDelegate->m_webView.get().get() requestDisplayCapturePermissionForOrigin:protect(wrapper(topLevelOrigin)).get() initiatedByFrame:frameInfoWrapper.get() withSystemAudio:requestSystemAudio decisionHandler:decisionHandler.get()];
-
-}
-void UIDelegate::UIClient::decidePolicyForScreenCaptureUnmuting(WebPageProxy& page, WebFrameProxy& frame, FrameInfoData&& frameInfo, API::SecurityOrigin& userMediaOrigin, API::SecurityOrigin& topLevelOrigin, CompletionHandler<void(bool isAllowed)>&& completionHandler)
-{
-    RefPtr uiDelegate = m_uiDelegate.get();
-    if (!uiDelegate) {
-        completionHandler(false);
-        return;
-    }
-
-    RetainPtr delegate = uiDelegatePrivate();
-    if (!delegate) {
-        completionHandler(false);
-        return;
-    }
-
-    bool respondsToRequestScreenCaptureUnmute = [delegate respondsToSelector:@selector(_webView:decidePolicyForScreenCaptureUnmutingForOrigin:initiatedByFrame:decisionHandler:)];
-
-    if (!respondsToRequestScreenCaptureUnmute) {
-        alertForPermission(page, MediaPermissionReason::ScreenCapture, topLevelOrigin.securityOrigin(), WTF::move(completionHandler));
-        return;
-    }
-
-    auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(_webView:decidePolicyForScreenCaptureUnmutingForOrigin:initiatedByFrame:decisionHandler:));
-    auto decisionHandler = makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)] (BOOL isAllowed) mutable {
-        if (checker->completionHandlerHasBeenCalled())
-            return;
-        checker->didCallCompletionHandler();
-
-        completionHandler(isAllowed);
-    });
-
-    std::optional<WebCore::FrameIdentifier> mainFrameID;
-    if (auto* mainFrame = frame.page() ? frame.page()->mainFrame() : nullptr)
-        mainFrameID = mainFrame->frameID();
-    RetainPtr<WKFrameInfo> frameInfoWrapper = wrapper(API::FrameInfo::create(WTF::move(frameInfo)));
-
-    [delegate _webView:uiDelegate->m_webView.get().get() decidePolicyForScreenCaptureUnmutingForOrigin:protect(wrapper(topLevelOrigin)).get() initiatedByFrame:frameInfoWrapper.get() decisionHandler:decisionHandler.get()];
-}
-
-void UIDelegate::UIClient::mediaCaptureStateDidChange(WebCore::MediaProducerMediaStateFlags state)
-{
-    RefPtr uiDelegate = m_uiDelegate.get();
-    if (!uiDelegate)
-        return;
-
-    RetainPtr webView = uiDelegate->m_webView.get();
-
-    [webView didChangeValueForKey:@"mediaCaptureState"];
-
-    RetainPtr delegate = uiDelegatePrivate();
-    if (!delegate || !uiDelegate->m_delegateMethods.webViewMediaCaptureStateDidChange)
-        return;
-
-    [delegate _webView:webView.get() mediaCaptureStateDidChange:toWKMediaCaptureStateDeprecated(state)];
 }
 
 void UIDelegate::UIClient::printFrame(WebPageProxy&, WebFrameProxy& webFrameProxy, const WebCore::FloatSize& pdfFirstPageSize, CompletionHandler<void()>&& completionHandler)

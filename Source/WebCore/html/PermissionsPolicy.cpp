@@ -47,14 +47,6 @@ using namespace HTMLNames;
 static ASCIILiteral toFeatureNameForLogging(PermissionsPolicy::Feature feature)
 {
     switch (feature) {
-    case PermissionsPolicy::Feature::Camera:
-        return "Camera"_s;
-    case PermissionsPolicy::Feature::Microphone:
-        return "Microphone"_s;
-    case PermissionsPolicy::Feature::SpeakerSelection:
-        return "SpeakerSelection"_s;
-    case PermissionsPolicy::Feature::DisplayCapture:
-        return "DisplayCapture"_s;
     case PermissionsPolicy::Feature::Payment:
         return "Payment"_s;
     case PermissionsPolicy::Feature::ScreenWakeLock:
@@ -90,10 +82,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
     PermissionsPolicy::Feature feature = PermissionsPolicy::Feature::Invalid;
     StringView remainingValue;
 
-    constexpr auto cameraToken { "camera"_s };
-    constexpr auto microphoneToken { "microphone"_s };
-    constexpr auto speakerSelectionToken { "speaker-selection"_s };
-    constexpr auto displayCaptureToken { "display-capture"_s };
     constexpr auto paymentToken { "payment"_s };
     constexpr auto screenWakeLockToken { "screen-wake-lock"_s };
     constexpr auto syncXHRToken { "sync-xhr"_s };
@@ -106,19 +94,7 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
     constexpr auto privateTokenToken { "private-token"_s };
     constexpr auto storageAccessToken { "storage-access"_s };
 
-    if (value.startsWith(cameraToken)) {
-        feature = PermissionsPolicy::Feature::Camera;
-        remainingValue = value.substring(cameraToken.length());
-    } else if (value.startsWith(microphoneToken)) {
-        feature = PermissionsPolicy::Feature::Microphone;
-        remainingValue = value.substring(microphoneToken.length());
-    } else if (value.startsWith(speakerSelectionToken)) {
-        feature = PermissionsPolicy::Feature::SpeakerSelection;
-        remainingValue = value.substring(speakerSelectionToken.length());
-    } else if (value.startsWith(displayCaptureToken)) {
-        feature = PermissionsPolicy::Feature::DisplayCapture;
-        remainingValue = value.substring(displayCaptureToken.length());
-    } else if (value.startsWith(paymentToken)) {
+    if (value.startsWith(paymentToken)) {
         feature = PermissionsPolicy::Feature::Payment;
         remainingValue = value.substring(paymentToken.length());
     } else if (value.startsWith(screenWakeLockToken)) {
@@ -164,10 +140,6 @@ static ASCIILiteral defaultAllowlistValue(PermissionsPolicy::Feature feature)
     case PermissionsPolicy::Feature::SyncXHR:
     case PermissionsPolicy::Feature::StorageAccess:
         return "*"_s;
-    case PermissionsPolicy::Feature::Camera:
-    case PermissionsPolicy::Feature::Microphone:
-    case PermissionsPolicy::Feature::SpeakerSelection:
-    case PermissionsPolicy::Feature::DisplayCapture:
     case PermissionsPolicy::Feature::Payment:
     case PermissionsPolicy::Feature::ScreenWakeLock:
     case PermissionsPolicy::Feature::Fullscreen:

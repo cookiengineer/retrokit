@@ -214,11 +214,6 @@ GPUProcessProxy::~GPUProcessProxy() = default;
 
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-void GPUProcessProxy::promptForGetDisplayMedia(WebCore::DisplayCapturePromptType type, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&& completionHandler)
-{
-    sendWithAsyncReply(Messages::GPUProcess::PromptForGetDisplayMedia { type }, WTF::move(completionHandler));
-}
-
 void GPUProcessProxy::cancelGetDisplayMediaPrompt()
 {
     send(Messages::GPUProcess::CancelGetDisplayMediaPrompt { }, 0);

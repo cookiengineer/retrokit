@@ -758,19 +758,6 @@ bool ScriptExecutionContext::shouldBlockThirdPartyStorage() const
     return m_storageBlockingPolicy == StorageBlockingPolicy::BlockThirdParty;
 }
 
-bool ScriptExecutionContext::allowsMediaDevices() const
-{
-#if ENABLE(MEDIA_STREAM)
-    auto* document = dynamicDowncast<Document>(*this);
-    if (!document)
-        return false;
-    RefPtr page = document->page();
-    return page ? !page->settings().mediaCaptureRequiresSecureConnection() : false;
-#else
-    return false;
-#endif
-}
-
 void ScriptExecutionContext::setActiveServiceWorker(RefPtr<ServiceWorker>&& serviceWorker)
 {
     m_activeServiceWorker = WTF::move(serviceWorker);

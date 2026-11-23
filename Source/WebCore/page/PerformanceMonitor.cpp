@@ -314,7 +314,6 @@ void PerformanceMonitor::processMayBecomeInactiveTimerFired()
 void PerformanceMonitor::updateProcessStateForMemoryPressure()
 {
     bool hasAudiblePages = false;
-    bool hasCapturingPages = false;
     bool mayBecomeInactive = true;
 
     Page::forEachPage([&] (Page& page) {
@@ -324,11 +323,9 @@ void PerformanceMonitor::updateProcessStateForMemoryPressure()
             mayBecomeInactive = false;
         if (page.activityState() & ActivityState::IsAudible)
             hasAudiblePages = true;
-        if (page.activityState() & ActivityState::IsCapturingMedia)
-            hasCapturingPages = true;
     });
 
-    bool isActiveProcess = !mayBecomeInactive || hasAudiblePages || hasCapturingPages;
+    bool isActiveProcess = !mayBecomeInactive || hasAudiblePages;
     MemoryPressureHandler::singleton().setProcessState(isActiveProcess ? WebsamProcessState::Active : WebsamProcessState::Inactive);
 }
 

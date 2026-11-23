@@ -424,22 +424,6 @@ bool WKPreferencesGetWebGLEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->webGLEnabled();
 }
-
-void WKPreferencesSetNeedsSiteSpecificQuirks(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setNeedsSiteSpecificQuirks(flag);
-}
-
-bool WKPreferencesGetNeedsSiteSpecificQuirks(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->needsSiteSpecificQuirks();
-}
-
-void WKPreferencesSetTabsToLinks(WKPreferencesRef preferencesRef, bool tabsToLinks)
-{
-    protect(toImpl(preferencesRef))->setTabsToLinks(tabsToLinks);
-}
-
 bool WKPreferencesGetTabsToLinks(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->tabsToLinks();
@@ -524,22 +508,6 @@ bool WKPreferencesGetJavaScriptCanAccessClipboard(WKPreferencesRef preferencesRe
 {
     return protect(toImpl(preferencesRef))->javaScriptCanAccessClipboard();
 }
-
-void WKPreferencesSetFullScreenEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setFullScreenEnabled(enabled);
-}
-
-bool WKPreferencesGetFullScreenEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->fullScreenEnabled();
-}
-
-void WKPreferencesSetAsynchronousSpellCheckingEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setAsynchronousSpellCheckingEnabled(enabled);
-}
-
 bool WKPreferencesGetAsynchronousSpellCheckingEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->asynchronousSpellCheckingEnabled();
@@ -909,22 +877,6 @@ bool WKPreferencesGetScrollingPerformanceLoggingEnabled(WKPreferencesRef prefere
 {
     return protect(toImpl(preferencesRef))->scrollingPerformanceTestingEnabled();
 }
-
-void WKPreferencesSetPDFPluginEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setPDFPluginEnabled(enabled);
-}
-
-bool WKPreferencesGetPDFPluginEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->pdfPluginEnabled();
-}
-
-void WKPreferencesSetEncodingDetectorEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setUsesEncodingDetector(enabled);
-}
-
 bool WKPreferencesGetEncodingDetectorEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->usesEncodingDetector();
@@ -1219,22 +1171,6 @@ bool WKPreferencesGetHTTPEquivEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->httpEquivEnabled();
 }
-
-void WKPreferencesSetAllowsAirPlayForMediaPlayback(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setAllowsAirPlayForMediaPlayback(enabled);
-}
-
-bool WKPreferencesGetAllowsAirPlayForMediaPlayback(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->allowsAirPlayForMediaPlayback();
-}
-
-void WKPreferencesSetUserInterfaceDirectionPolicy(WKPreferencesRef preferencesRef, _WKUserInterfaceDirectionPolicy userInterfaceDirectionPolicy)
-{
-    protect(toImpl(preferencesRef))->setUserInterfaceDirectionPolicy(userInterfaceDirectionPolicy);
-}
-
 _WKUserInterfaceDirectionPolicy WKPreferencesGetUserInterfaceDirectionPolicy(WKPreferencesRef preferencesRef)
 {
     return static_cast<_WKUserInterfaceDirectionPolicy>(protect(toImpl(preferencesRef))->userInterfaceDirectionPolicy());
@@ -1248,36 +1184,6 @@ void WKPreferencesSetResourceUsageOverlayVisible(WKPreferencesRef preferencesRef
 bool WKPreferencesGetResourceUsageOverlayVisible(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->resourceUsageOverlayVisible();
-}
-
-void WKPreferencesSetGetUserMediaRequiresFocus(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setGetUserMediaRequiresFocus(enabled);
-}
-
-bool WKPreferencesGetGetUserMediaRequiresFocus(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->getUserMediaRequiresFocus();
-}
-
-void WKPreferencesSetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setEnumeratingAllNetworkInterfacesEnabled(enabled);
-}
-
-bool WKPreferencesGetEnumeratingAllNetworkInterfacesEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->enumeratingAllNetworkInterfacesEnabled();
-}
-
-void WKPreferencesSetInactiveMediaCaptureStreamRepromptIntervalInMinutes(WKPreferencesRef preferencesRef, double interval)
-{
-    protect(toImpl(preferencesRef))->setInactiveMediaCaptureStreamRepromptIntervalInMinutes(interval);
-}
-
-double WKPreferencesGetInactiveMediaCaptureStreamRepromptIntervalInMinutes(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->inactiveMediaCaptureStreamRepromptIntervalInMinutes();
 }
 
 void WKPreferencesSetDataTransferItemsEnabled(WKPreferencesRef preferencesRef, bool flag)
@@ -1339,27 +1245,6 @@ WK_EXPORT bool WKPreferencesGetIsAccessibilityIsolatedTreeEnabled(WKPreferencesR
 {
     return protect(toImpl(preferencesRef))->isAccessibilityIsolatedTreeEnabled();
 }
-
-void WKPreferencesSetAllowsPictureInPictureMediaPlayback(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setAllowsPictureInPictureMediaPlayback(enabled);
-}
-
-bool WKPreferencesGetAllowsPictureInPictureMediaPlayback(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->allowsPictureInPictureMediaPlayback();
-}
-
-WK_EXPORT bool WKPreferencesGetApplePayEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(WebKit::toImpl(preferencesRef))->applePayEnabled();
-}
-
-void WKPreferencesSetApplePayEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(WebKit::toImpl(preferencesRef))->setApplePayEnabled(enabled);
-}
-
 bool WKPreferencesGetCSSTransformStyleSeparatedEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(WebKit::toImpl(preferencesRef))->cssTransformStyleSeparatedEnabled();
@@ -1369,17 +1254,6 @@ void WKPreferencesSetCSSTransformStyleSeparatedEnabled(WKPreferencesRef preferen
 {
     protect(WebKit::toImpl(preferencesRef))->setCSSTransformStyleSeparatedEnabled(enabled);
 }
-
-bool WKPreferencesGetApplePayCapabilityDisclosureAllowed(WKPreferencesRef preferencesRef)
-{
-    return protect(WebKit::toImpl(preferencesRef))->applePayCapabilityDisclosureAllowed();
-}
-
-void WKPreferencesSetApplePayCapabilityDisclosureAllowed(WKPreferencesRef preferencesRef, bool allowed)
-{
-    protect(WebKit::toImpl(preferencesRef))->setApplePayCapabilityDisclosureAllowed(allowed);
-}
-
 void WKPreferencesSetLinkPreloadEnabled(WKPreferencesRef preferencesRef, bool flag)
 {
     protect(toImpl(preferencesRef))->setLinkPreloadEnabled(flag);
@@ -1399,22 +1273,6 @@ bool WKPreferencesGetMediaPreloadingEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->mediaPreloadingEnabled();
 }
-
-void WKPreferencesSetExposeSpeakersEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setExposeSpeakersEnabled(flag);
-}
-
-bool WKPreferencesGetExposeSpeakersEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->exposeSpeakersEnabled();
-}
-
-void WKPreferencesSetLargeImageAsyncDecodingEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setLargeImageAsyncDecodingEnabled(flag);
-}
-
 bool WKPreferencesGetLargeImageAsyncDecodingEnabled(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->largeImageAsyncDecodingEnabled();
@@ -1459,17 +1317,6 @@ WKStringRef WKPreferencesCopyMediaContentTypesRequiringHardwareSupport(WKPrefere
 {
     return toCopiedAPI(protect(toImpl(preferencesRef))->mediaContentTypesRequiringHardwareSupport());
 }
-
-bool WKPreferencesGetLegacyEncryptedMediaAPIEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->legacyEncryptedMediaAPIEnabled();
-}
-
-void WKPreferencesSetLegacyEncryptedMediaAPIEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    return protect(toImpl(preferencesRef))->setLegacyEncryptedMediaAPIEnabled(enabled);
-}
-
 bool WKPreferencesGetAllowMediaContentTypesRequiringHardwareSupportAsFallback(WKPreferencesRef preferencesRef)
 {
     return protect(toImpl(preferencesRef))->allowMediaContentTypesRequiringHardwareSupportAsFallback();
@@ -1534,65 +1381,6 @@ bool WKPreferencesGetBoolValueForKeyForTesting(WKPreferencesRef preferencesRef, 
 {
     return toImpl(preferencesRef)->store().getBoolValueForKey(toWTFString(key));
 }
-
-void WKPreferencesSetCaptureAudioInUIProcessEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetCaptureAudioInUIProcessEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetCaptureAudioInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setCaptureAudioInGPUProcessEnabled(flag);
-}
-
-bool WKPreferencesGetCaptureAudioInGPUProcessEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->captureAudioInGPUProcessEnabled();
-}
-
-void WKPreferencesSetCaptureVideoInUIProcessEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetCaptureVideoInUIProcessEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetCaptureVideoInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setCaptureVideoInGPUProcessEnabled(flag);
-}
-
-bool WKPreferencesGetCaptureVideoInGPUProcessEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->captureVideoInGPUProcessEnabled();
-}
-
-void WKPreferencesSetVP9DecoderEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setVP9DecoderEnabled(flag);
-}
-
-bool WKPreferencesGetVP9DecoderEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->vp9DecoderEnabled();
-}
-
-bool WKPreferencesGetRemotePlaybackEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(WebKit::toImpl(preferencesRef))->remotePlaybackEnabled();
-}
-
-void WKPreferencesSetRemotePlaybackEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(WebKit::toImpl(preferencesRef))->setRemotePlaybackEnabled(enabled);
-}
-
 bool WKPreferencesGetShouldUseServiceWorkerShortTimeout(WKPreferencesRef preferencesRef)
 {
     return protect(WebKit::toImpl(preferencesRef))->shouldUseServiceWorkerShortTimeout();
@@ -1651,119 +1439,10 @@ bool WKPreferencesGetRestrictedHTTPResponseAccess(WKPreferencesRef)
 {
     return true;
 }
-
-void WKPreferencesSetPluginsEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetPluginsEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetSubpixelAntialiasedLayerTextEnabled(WKPreferencesRef, bool)
-{
-}
-
 bool WKPreferencesGetSubpixelAntialiasedLayerTextEnabled(WKPreferencesRef)
 {
     return false;
 }
-
-void WKPreferencesSetPageCacheSupportsPlugins(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetPageCacheSupportsPlugins(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetAsynchronousPluginInitializationEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetAsynchronousPluginInitializationEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetAsynchronousPluginInitializationEnabledForAllPlugins(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetAsynchronousPluginInitializationEnabledForAllPlugins(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetArtificialPluginInitializationDelayEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetArtificialPluginInitializationDelayEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetPlugInSnapshottingEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetPlugInSnapshottingEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetPluginSandboxProfilesEnabledForAllPlugins(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetPluginSandboxProfilesEnabledForAllPlugins(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetSnapshotAllPlugIns(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetSnapshotAllPlugIns(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetAutostartOriginPlugInSnapshottingEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetAutostartOriginPlugInSnapshottingEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetPrimaryPlugInSnapshotDetectionEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetPrimaryPlugInSnapshotDetectionEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetAllowCrossOriginSubresourcesToAskForCredentials(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetAllowCrossOriginSubresourcesToAskForCredentials(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetPaintTimingEnabled(WKPreferencesRef, bool)
-{
-}
-
 bool WKPreferencesGetPaintTimingEnabled(WKPreferencesRef)
 {
     return true;
@@ -1957,20 +1636,6 @@ bool WKPreferencesGetXSSAuditorEnabled(WKPreferencesRef)
 {
     return false;
 }
-
-void WKPreferencesSetJavaEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetJavaEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetPaginateDuringLayoutEnabled(WKPreferencesRef, bool)
-{
-}
-
 bool WKPreferencesGetPaginateDuringLayoutEnabled(WKPreferencesRef)
 {
     return false;
@@ -2017,15 +1682,6 @@ void WKPreferencesSetServerTimingEnabled(WKPreferencesRef, bool)
 }
 
 bool WKPreferencesGetServerTimingEnabled(WKPreferencesRef)
-{
-    return true;
-}
-
-void WKPreferencesSetMediaStreamEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-}
-
-bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
 {
     return true;
 }

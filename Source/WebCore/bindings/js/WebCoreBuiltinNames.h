@@ -102,7 +102,6 @@ namespace WebCore {
     macro(BarcodeDetector) \
     macro(BaseAudioContext) \
     macro(BiquadFilterNode) \
-    macro(BlobEvent) \
     macro(BroadcastChannel) \
     macro(BufferedChangeEvent) \
     macro(Cache) \
@@ -280,7 +279,6 @@ namespace WebCore {
     macro(IIRFilterNode) \
     macro(ImageBitmap) \
     macro(ImageBitmapRenderingContext) \
-    macro(ImageCapture) \
     macro(IdleDeadline) \
     macro(InputDeviceInfo) \
     macro(InputEvent) \
@@ -307,17 +305,9 @@ namespace WebCore {
     macro(MediaKeySystemAccess) \
     macro(MediaKeys) \
     macro(MediaQueryListEvent) \
-    macro(MediaRecorder) \
-    macro(MediaRecorderErrorEvent) \
     macro(MediaSessionCoordinator) \
     macro(MediaSource) \
     macro(MediaSourceHandle) \
-    macro(MediaStream) \
-    macro(MediaStreamAudioDestinationNode) \
-    macro(MediaStreamAudioSourceNode) \
-    macro(MediaStreamTrack) \
-    macro(MediaStreamTrackHandle) \
-    macro(MediaStreamTrackProcessor) \
     macro(MerchantValidationEvent) \
     macro(MockRTCRtpTransform) \
     macro(MutationEvent) \
@@ -333,7 +323,6 @@ namespace WebCore {
     macro(NavigatorUAData) \
     macro(NavigatorMediaDevices) \
     macro(NavigatorPermissions) \
-    macro(NavigatorUserMedia) \
     macro(Notification) \
     macro(NotificationEvent) \
     macro(Observable) \
@@ -577,7 +566,6 @@ namespace WebCore {
     macro(getInternalWritableStream) \
     macro(getMatchedCSSRules) \
     macro(getTracks) \
-    macro(getUserMedia) \
     macro(globalObject) \
     macro(gpu) \
     macro(handleEvent) \
@@ -605,7 +593,6 @@ namespace WebCore {
     macro(makeGetterTypeError) \
     macro(makeThisTypeError) \
     macro(matchingElementInFlatTree) \
-    macro(mediaStreamTrackConstraints) \
     macro(navigation) \
     macro(onbackgroundfetchsuccess) \
     macro(onbackgroundfetchfail) \

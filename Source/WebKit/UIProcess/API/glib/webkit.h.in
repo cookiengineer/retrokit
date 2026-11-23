@@ -118,7 +118,6 @@
 #include <@API_INCLUDE_PREFIX@/WebKitUserContent.h>
 #include <@API_INCLUDE_PREFIX@/WebKitUserContentFilterStore.h>
 #include <@API_INCLUDE_PREFIX@/WebKitUserContentManager.h>
-#include <@API_INCLUDE_PREFIX@/WebKitUserMediaPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitUserMessage.h>
 #include <@API_INCLUDE_PREFIX@/WebKitVersion.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebContext.h>

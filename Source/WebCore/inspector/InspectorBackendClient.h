@@ -43,7 +43,6 @@ class PageInspectorController;
 enum class InspectorBackendClientDeveloperPreference : uint8_t {
     PrivateClickMeasurementDebugModeEnabled,
     ITPDebugModeEnabled,
-    MockCaptureDevicesEnabled,
     NeedsSiteSpecificQuirks,
 };
 

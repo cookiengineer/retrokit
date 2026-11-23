@@ -38,12 +38,6 @@ namespace WebCore {
 
 class Icon;
 
-enum class MediaCaptureType : uint8_t {
-    MediaCaptureTypeNone,
-    MediaCaptureTypeUser,
-    MediaCaptureTypeEnvironment
-};
-
 struct FileChooserFileInfo {
     FileChooserFileInfo isolatedCopy() const & { return { path.isolatedCopy(), replacementPath.isolatedCopy(), displayName.isolatedCopy() }; }
     FileChooserFileInfo isolatedCopy() && { return { WTF::move(path).isolatedCopy(), WTF::move(replacementPath).isolatedCopy(), WTF::move(displayName).isolatedCopy() }; }

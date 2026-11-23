@@ -126,36 +126,16 @@ WK_EXPORT bool WKPageIsPlayingAudio(WKPageRef page);
 enum {
     kWKMediaNoneMuted = 0,
     kWKMediaAudioMuted = 1 << 0,
-    kWKMediaCaptureDevicesMuted = 1 << 1,
-    kWKMediaScreenCaptureMuted = 1 << 2,
-    kWKMediaCameraCaptureMuted = 1 << 3,
-    kWKMediaMicrophoneCaptureMuted = 1 << 4,
-    kWKMediaScreenCaptureUnmuted = 1 << 5,
-    kWKMediaCameraCaptureUnmuted = 1 << 6,
-    kWKMediaMicrophoneCaptureUnmuted = 1 << 7,
 };
 
 typedef uint32_t WKMediaMutedState;
 WK_EXPORT void WKPageSetMuted(WKPageRef page, WKMediaMutedState muted);
 
-WK_EXPORT void WKPageClearUserMediaState(WKPageRef page);
-WK_EXPORT void WKPageSetMediaCaptureEnabled(WKPageRef page, bool enabled);
-WK_EXPORT bool WKPageGetMediaCaptureEnabled(WKPageRef page);
 
 enum {
     kWKMediaIsNotPlaying = 0,
     kWKMediaIsPlayingAudio = 1 << 0,
     kWKMediaIsPlayingVideo = 1 << 1,
-    kWKMediaHasActiveAudioCaptureDevice = 1 << 2,
-    kWKMediaHasActiveVideoCaptureDevice = 1 << 3,
-    kWKMediaHasMutedAudioCaptureDevice = 1 << 4,
-    kWKMediaHasMutedVideoCaptureDevice = 1 << 5,
-    kWKMediaHasActiveScreenCaptureDevice = 1 << 6,
-    kWKMediaHasActiveDisplayCaptureDevice = kWKMediaHasActiveScreenCaptureDevice,
-    kWKMediaHasMutedScreenCaptureDevice = 1 << 7,
-    kWKMediaHasMutedDisplayCaptureDevice = kWKMediaHasMutedScreenCaptureDevice,
-    kWKMediaHasActiveWindowCaptureDevice = 1 << 8,
-    kWKMediaHasMutedWindowCaptureDevice = 1 << 9,
 };
 typedef uint32_t WKMediaState;
 
@@ -206,16 +186,11 @@ WK_EXPORT void WKPageSetPCMFraudPreventionValuesForTesting(WKPageRef page, WKStr
 typedef void (*WKPageSetPrivateClickMeasurementAppBundleIDForTestingFunction)(void* functionContext);
 WK_EXPORT void WKPageSetPrivateClickMeasurementAppBundleIDForTesting(WKPageRef pageRef, WKStringRef appBundleIDForTesting, WKPageSetPrivateClickMeasurementAppBundleIDForTestingFunction callback, void* callbackContext);
 
-WK_EXPORT void WKPageSetMockCameraOrientationForTesting(WKPageRef page, uint64_t rotation, WKStringRef persistentId);
-WK_EXPORT bool WKPageIsMockRealtimeMediaSourceCenterEnabled(WKPageRef page);
-WK_EXPORT void WKPageSetMockCaptureDevicesInterrupted(WKPageRef page, bool isCameraInterrupted, bool isMicrophoneInterrupted);
-WK_EXPORT void WKPageTriggerMockCaptureConfigurationChange(WKPageRef page, bool forCamera, bool forMicrophone, bool forDisplay);
 
 typedef void (*WKPageLoadedSubresourceDomainsFunction)(WKArrayRef domains, void* functionContext);
 WK_EXPORT void WKPageLoadedSubresourceDomains(WKPageRef page, WKPageLoadedSubresourceDomainsFunction callback, void* callbackContext);
 WK_EXPORT void WKPageClearLoadedSubresourceDomains(WKPageRef page);
 
-WK_EXPORT void WKPageSetMediaCaptureReportingDelayForTesting(WKPageRef page, double delay);
 
 WK_EXPORT void WKPageDispatchActivityStateUpdateForTesting(WKPageRef page);
 

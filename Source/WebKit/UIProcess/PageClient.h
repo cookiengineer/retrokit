@@ -638,7 +638,6 @@ public:
     virtual WebCore::FloatBoxExtent computedObscuredInset() const = 0;
     virtual WebCore::Color contentViewBackgroundColor() = 0;
     virtual WebCore::Color insertionPointColor() = 0;
-    virtual bool isScreenBeingCaptured() = 0;
 
     virtual String sceneID() = 0;
 
@@ -721,16 +720,6 @@ public:
     virtual NSObject *immediateActionAnimationControllerForHitTestResult(RefPtr<API::HitTestResult>, uint64_t, RefPtr<API::Object>) = 0;
 #endif
 
-    virtual void microphoneCaptureWillChange() { }
-    virtual void cameraCaptureWillChange() { }
-    virtual void displayCaptureWillChange() { }
-    virtual void displayCaptureSurfacesWillChange() { }
-    virtual void systemAudioCaptureWillChange() { }
-    virtual void microphoneCaptureChanged() { }
-    virtual void cameraCaptureChanged() { }
-    virtual void displayCaptureChanged() { }
-    virtual void displayCaptureSurfacesChanged() { }
-    virtual void systemAudioCaptureChanged() { }
 
     virtual void videoControlsManagerDidChange() { }
     virtual void videosInElementFullscreenChanged() { }

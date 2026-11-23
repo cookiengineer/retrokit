@@ -111,31 +111,6 @@ void WebProcessActivityState::takeAudibleActivity()
     m_isAudibleActivity = protect(protect(process())->throttler())->foregroundActivity("View is playing audio"_s);
 }
 
-void WebProcessActivityState::takeCapturingActivity()
-{
-    m_isCapturingActivity = protect(protect(process())->throttler())->foregroundActivity("View is capturing media"_s);
-}
-
-void WebProcessActivityState::takeMutedCaptureAssertion()
-{
-    Ref isMutedCaptureAssertion = ProcessAssertion::create(protect(process()), "WebKit Muted Media Capture"_s, ProcessAssertionType::Background);
-    m_isMutedCaptureAssertion = isMutedCaptureAssertion.copyRef();
-
-    auto page = WTF::visit([](auto&& weakPageRef) -> Variant<WeakPtr<WebPageProxy>, WeakPtr<RemotePageProxy>> {
-        return weakPageRef.get();
-    }, m_page);
-
-    isMutedCaptureAssertion->setInvalidationHandler([weakPage = page] {
-        auto invalidateCaptureAssertion = [](auto&& weakPage) {
-            if (auto* page = weakPage.get()) {
-                RELEASE_LOG(ProcessSuspension, "Muted capture assertion is invalidated");
-                page->processActivityState().m_isMutedCaptureAssertion = nullptr;
-            }
-        };
-        WTF::visit(invalidateCaptureAssertion, weakPage);
-    });
-}
-
 void WebProcessActivityState::takeNetworkActivity()
 {
     RELEASE_LOG(Process, "Taking network activity on WebProcess with PID %d", protect(process())->processID());
@@ -149,8 +124,6 @@ void WebProcessActivityState::reset()
     m_wasRecentlyVisibleActivity->setActivity(nullptr);
 #endif
     m_isAudibleActivity = nullptr;
-    m_isCapturingActivity = nullptr;
-    m_isMutedCaptureAssertion = nullptr;
 #if PLATFORM(IOS_FAMILY)
     m_openingAppLinkActivity = nullptr;
 #endif
@@ -172,16 +145,6 @@ void WebProcessActivityState::dropAudibleActivity()
     m_isAudibleActivity = nullptr;
 }
 
-void WebProcessActivityState::dropCapturingActivity()
-{
-    m_isCapturingActivity = nullptr;
-}
-
-void WebProcessActivityState::dropMutedCaptureAssertion()
-{
-    m_isMutedCaptureAssertion = nullptr;
-}
-
 void WebProcessActivityState::dropNetworkActivity()
 {
     RELEASE_LOG(Process, "Dropping network activity on WebProcess with PID %d", protect(process())->processID());
@@ -198,19 +161,9 @@ bool WebProcessActivityState::hasValidAudibleActivity() const
     return m_isAudibleActivity && m_isAudibleActivity->isValid();
 }
 
-bool WebProcessActivityState::hasValidCapturingActivity() const
-{
-    return m_isCapturingActivity && m_isCapturingActivity->isValid();
-}
-
 bool WebProcessActivityState::hasValidNetworkActivity() const
 {
     return m_networkActivity && m_networkActivity->isValid();
-}
-
-bool WebProcessActivityState::hasValidMutedCaptureAssertion() const
-{
-    return m_isMutedCaptureAssertion;
 }
 
 #if PLATFORM(IOS_FAMILY)

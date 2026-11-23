@@ -44,11 +44,10 @@ enum class ActivityState : uint16_t {
     IsVisuallyIdle = 1 << 5,
     IsAudible = 1 << 6,
     IsLoading = 1 << 7,
-    IsCapturingMedia = 1 << 8,
     IsConnectedToHardwareConsole = 1 << 9,
 };
 
-static constexpr OptionSet<ActivityState> allActivityStates() { return { ActivityState::WindowIsActive, ActivityState::IsFocused, ActivityState::IsVisible, ActivityState::IsVisibleOrOccluded, ActivityState::IsInWindow, ActivityState::IsVisuallyIdle, ActivityState::IsAudible, ActivityState::IsLoading, ActivityState::IsCapturingMedia, ActivityState::IsConnectedToHardwareConsole }; }
+static constexpr OptionSet<ActivityState> allActivityStates() { return { ActivityState::WindowIsActive, ActivityState::IsFocused, ActivityState::IsVisible, ActivityState::IsVisibleOrOccluded, ActivityState::IsInWindow, ActivityState::IsVisuallyIdle, ActivityState::IsAudible, ActivityState::IsLoading, ActivityState::IsConnectedToHardwareConsole }; }
 
 enum class ActivityStateForCPUSampling : uint8_t {
     NonVisible,

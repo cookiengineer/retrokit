@@ -106,7 +106,6 @@ public:
     virtual bool isNotificationController() const { return false; }
     virtual bool isServiceWorkerRegistrationBackgroundFetchAPI() const { return false; }
     virtual bool isServiceWorkerRegistrationPushAPI() const { return false; }
-    virtual bool isUserMediaController() const { return false; }
     virtual bool isWorkerGlobalScopeCaches() const { return false; }
     virtual bool isWorkerGlobalScopeIndexedDatabase() const { return false; }
     virtual bool isWorkerGlobalScopeTrustedTypes() const { return false; }

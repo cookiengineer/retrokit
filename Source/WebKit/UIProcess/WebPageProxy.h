@@ -120,7 +120,6 @@ enum class HysteresisState : bool;
 namespace WebCore {
 
 class AuthenticationChallenge;
-class CaptureDevice;
 class CertificateInfo;
 class Color;
 class ContentFilterUnblockHandler;
@@ -211,7 +210,6 @@ enum class LayerTreeAsTextOptions : uint16_t;
 enum class LayoutViewportConstraint : bool;
 enum class LockBackForwardList : bool;
 enum class MediaPlaybackTargetMockState : uint8_t;
-enum class MediaProducerMediaCaptureKind : uint8_t;
 enum class MediaProducerMediaState : uint32_t;
 enum class MediaProducerMutedState : uint8_t;
 enum class ModalContainerControlType : uint8_t;
@@ -273,8 +271,6 @@ struct AriaNotifyData;
 struct AttributedString;
 struct BackForwardItemIdentifierType;
 struct BackForwardFrameItemIdentifierType;
-struct CaptureDeviceWithCapabilities;
-struct CaptureSourceOrError;
 struct CharacterRange;
 struct ClientOrigin;
 struct CompositionHighlight;
@@ -354,7 +350,6 @@ struct TextManipulationItem;
 struct TextRecognitionResult;
 struct TranslationContextMenuInfo;
 struct UserGestureTokenData;
-struct UserMediaRequestIdentifierType;
 struct ViewportArguments;
 struct WheelEventHandlingResult;
 struct WindowFeatures;
@@ -439,7 +434,6 @@ using SandboxFlags = OptionSet<SandboxFlag>;
 using ScrollingNodeID = ProcessQualified<ObjectIdentifier<ScrollingNodeIDType>>;
 using ScrollPosition = IntPoint;
 using SleepDisablerIdentifier = ObjectIdentifier<SleepDisablerIdentifierType>;
-using UserMediaRequestIdentifier = ObjectIdentifier<UserMediaRequestIdentifierType>;
 
 } // namespace WebCore
 
@@ -540,8 +534,6 @@ class SystemPreviewController;
 class TextExtractionAssertionScope;
 class TextExtractionCache;
 class UserData;
-class UserMediaPermissionRequestManagerProxy;
-class UserMediaPermissionRequestProxy;
 class VideoPresentationManagerProxy;
 class ViewSnapshot;
 class VisibleContentRectUpdateInfo;
@@ -1141,13 +1133,8 @@ public:
     void setEditable(bool);
     bool isEditable() const { return m_isEditable; }
 
-    void activateMediaStreamCaptureInPage();
-    bool NODELETE isMediaStreamCaptureMuted() const;
-    void setMediaStreamCaptureMuted(bool);
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    void isConnectedToHardwareConsoleDidChange();
 #endif
-    bool NODELETE isAllowedToChangeMuteState() const;
 
     void requestFontAttributesAtSelectionStart(CompletionHandler<void(const WebCore::FontAttributes&)>&&);
 
@@ -1190,7 +1177,6 @@ public:
 
     void setShouldRevealCurrentSelectionAfterInsertion(bool);
         
-    void setScreenIsBeingCaptured(bool);
 
     double displayedContentScale() const;
     WebCore::FloatRect exposedContentRect() const;
@@ -1991,10 +1977,6 @@ public:
     bool NODELETE isAudioMuted() const;
     void setMayStartMediaWhenInWindow(bool);
     bool mayStartMediaWhenInWindow() const { return m_mayStartMediaWhenInWindow; }
-    void setMediaCaptureEnabled(bool);
-    bool mediaCaptureEnabled() const { return m_mediaCaptureEnabled; }
-    void stopMediaCapture(WebCore::MediaProducerMediaCaptureKind);
-    void stopMediaCapture(WebCore::MediaProducerMediaCaptureKind, CompletionHandler<void()>&&);
 
     void pauseAllMediaPlayback(CompletionHandler<void()>&&);
     void suspendAllMediaPlayback(CompletionHandler<void()>&&);
@@ -2114,14 +2096,10 @@ public:
     bool NODELETE isPlayingAudio() const;
     bool NODELETE hasMediaStreaming() const;
     void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags);
-    void updateReportedMediaCaptureState();
-    void setIsPromptingForGetDisplayMedia(WebCore::MediaProducerMediaStateFlags);
 
     enum class CanDelayNotification : bool { No, Yes };
     void updatePlayingMediaDidChange(CanDelayNotification = CanDelayNotification::No);
     void updatePlayingMediaDidChangeTimerFired();
-    bool NODELETE isCapturingAudio() const;
-    bool NODELETE isCapturingVideo() const;
     bool NODELETE hasActiveAudioStream() const;
     bool NODELETE hasActiveVideoStream() const;
     WebCore::MediaProducerMediaStateFlags NODELETE reportedMediaState() const;
@@ -2243,7 +2221,6 @@ public:
 
     void isLoadingChanged();
 
-    void clearUserMediaState();
 
     void setShouldSkipWaitingForPaintAfterNextViewDidMoveToWindow(bool shouldSkip) { m_shouldSkipWaitingForPaintAfterNextViewDidMoveToWindow = shouldSkip; }
 
@@ -2394,8 +2371,6 @@ public:
 
     void getProcessDisplayName(CompletionHandler<void(String&&)>&&);
 
-    void setOrientationForMediaCapture(WebCore::IntDegrees);
-    void setMediaCaptureRotationForTesting(WebCore::IntDegrees, const String&);
 
 
     bool isHandlingPreventableTouchStart() const { return m_handlingPreventableTouchStartCount; }
@@ -2503,8 +2478,6 @@ public:
     void requestPDFDisplayMode(PDFPluginDisplayMode);
 #endif
 
-    Seconds mediaCaptureReportingDelay() const { return m_mediaCaptureReportingDelay; }
-    void setMediaCaptureReportingDelay(Seconds captureReportingDelay) { m_mediaCaptureReportingDelay = captureReportingDelay; }
     size_t suspendMediaPlaybackCounter() { return m_suspendMediaPlaybackCounter; }
 
 
@@ -2702,9 +2675,6 @@ public:
     void resetMediaCapability();
     void updateMediaCapability();
 
-    const MediaCapability* displayCaptureCapability() const;
-    void resetDisplayCaptureCapability();
-    void updateDisplayCaptureCapability();
 #endif
 
     void requestAllTextAndRects(CompletionHandler<void(Vector<Ref<API::TextRun>>&&)>&&);
@@ -3532,10 +3502,6 @@ private:
     bool shouldActivateMediaCapability() const;
     bool shouldDeactivateMediaCapability() const;
 
-    void setDisplayCaptureCapability(RefPtr<MediaCapability>&&);
-    void deactivateDisplayCaptureCapability(MediaCapability&);
-    bool shouldActivateDisplayCaptureCapability() const;
-    bool shouldDeactivateDisplayCaptureCapability() const;
 #endif
 
     // These are intentionally private
@@ -3592,24 +3558,16 @@ private:
 
     void takeVisibleActivity();
     void takeAudibleActivity();
-    void takeCapturingActivity();
-    void takeMutedCaptureAssertion();
 
     void resetActivityState();
     void dropVisibleActivity();
     void dropAudibleActivity();
-    void dropCapturingActivity();
-    void dropMutedCaptureAssertion();
 
     bool hasValidVisibleActivity() const;
     bool hasValidAudibleActivity() const;
-    bool hasValidCapturingActivity() const;
-    bool hasValidMutedCaptureAssertion() const;
 
     bool NODELETE hasValidMainFrameVisibleActivity() const;
     bool NODELETE hasValidMainFrameAudibleActivity() const;
-    bool NODELETE hasValidMainFrameCapturingActivity() const;
-    bool NODELETE hasValidMainFrameMutedCaptureAssertion() const;
     bool NODELETE hasValidMainFrameNetworkActivity() const;
 
 #if PLATFORM(IOS_FAMILY)
@@ -3980,11 +3938,6 @@ private:
     float m_mediaVolume { 1 };
     bool m_mayStartMediaWhenInWindow { true };
     bool m_mediaPlaybackIsSuspended { false };
-    bool m_mediaCaptureEnabled { true };
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    bool m_isProcessingIsConnectedToHardwareConsoleDidChangeNotification { false };
-    bool m_captureWasMutedDueToDisconnectedHardwareConsole { false };
-#endif
 
     bool m_waitingForDidUpdateActivityState { false };
 
@@ -4014,12 +3967,6 @@ private:
 
     // Assume animations are allowed to play by default. If this is not the case, we will be notified by the web process.
     bool m_allowsAnyAnimationToPlay { true };
-
-    // To make sure capture indicators are visible long enough, m_reportedMediaCaptureState is the same as m_mediaState except that we might delay a bit transition from capturing to not-capturing.
-    static constexpr Seconds DefaultMediaCaptureReportingDelay { 3_s };
-    Seconds m_mediaCaptureReportingDelay { DefaultMediaCaptureReportingDelay };
-
-    WebCore::IntDegrees m_orientationForMediaCapture { 0 };
 
     bool m_hasFocusedElementWithUserInteraction { false };
 

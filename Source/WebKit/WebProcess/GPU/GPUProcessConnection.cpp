@@ -392,17 +392,6 @@ void GPUProcessConnection::setMediaPlaybackEnvironment(WebCore::PageIdentifier p
     m_connection->send(Messages::GPUConnectionToWebProcess::SetMediaPlaybackEnvironment(pageIdentifier, environment), { });
 }
 
-void GPUProcessConnection::setDisplayCaptureEnvironment(WebCore::PageIdentifier pageIdentifier, const String& environment)
-{
-    m_connection->send(Messages::GPUConnectionToWebProcess::SetDisplayCaptureEnvironment(pageIdentifier, environment), { });
-}
-#endif
-
-void GPUProcessConnection::createRenderingBackend(RemoteRenderingBackendIdentifier identifier, IPC::StreamServerConnection::Handle&& serverHandle)
-{
-    m_connection->send(Messages::GPUConnectionToWebProcess::CreateRenderingBackend(identifier, WTF::move(serverHandle)), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
-}
-
 void GPUProcessConnection::releaseRenderingBackend(RemoteRenderingBackendIdentifier identifier)
 {
     m_connection->send(Messages::GPUConnectionToWebProcess::ReleaseRenderingBackend(identifier), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);

@@ -68,7 +68,6 @@ using MediaProducerMediaStateFlags = OptionSet<MediaProducerMediaState>;
 namespace WebKit {
 class NativeWebKeyboardEvent;
 class NativeWebWheelEvent;
-class UserMediaPermissionRequestProxy;
 class WebColorPickerResultListenerProxy;
 class WebFrameProxy;
 class WebInspectorUIProxy;
@@ -149,7 +148,6 @@ public:
     virtual void didChangeFontAttributes(const WebCore::FontAttributes&) { }
 
     virtual bool runOpenPanel(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, WebKit::FrameInfoData&&, OpenPanelParameters*, WebKit::WebOpenPanelResultListenerProxy*) { return false; }
-    virtual void decidePolicyForScreenCaptureUnmuting(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::FrameInfoData&&, SecurityOrigin&, SecurityOrigin&, CompletionHandler<void(bool isAllowed)>&& completionHandler) { completionHandler(false); }
     virtual void decidePolicyForNotificationPermissionRequest(WebKit::WebPageProxy&, SecurityOrigin&, CompletionHandler<void(bool allowed)>&& completionHandler) { completionHandler(false); }
     virtual void requestStorageAccessConfirm(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(true); }
     virtual void addMessageToConsoleForTesting(WebKit::WebPageProxy&, WTF::String&&) { }
@@ -169,7 +167,6 @@ public:
     virtual void pinnedStateDidChange(WebKit::WebPageProxy&) { }
 
     virtual void isPlayingMediaDidChange(WebKit::WebPageProxy&) { }
-    virtual void mediaCaptureStateDidChange(WebCore::MediaProducerMediaStateFlags) { }
     virtual void handleAutoplayEvent(WebKit::WebPageProxy&, WebCore::AutoplayEvent, OptionSet<WebCore::AutoplayEventFlags>) { }
 
 #if PLATFORM(IOS_FAMILY)

@@ -47,7 +47,6 @@ struct FileChooserFileInfo;
 
 enum class AnyStepHandling : bool;
 enum class DateComponentsType : uint8_t;
-enum class MediaCaptureType : uint8_t;
 enum class SelectionRestorationMode : uint8_t;
 
 struct InputElementClickState {

@@ -25,3 +25,92 @@
 
 #pragma once
 
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+
+#include "LayerHostingContext.h"
+#include "MessageReceiver.h"
+#include "MessageSender.h"
+#include "RemoteSampleBufferDisplayLayerManager.h"
+#include "RemoteVideoFrameIdentifier.h"
+#include "SampleBufferDisplayLayerIdentifier.h"
+#include "SharedVideoFrame.h"
+#include <WebCore/HostingContext.h>
+#include <WebCore/SampleBufferDisplayLayer.h>
+#include <wtf/MediaTime.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadAssertions.h>
+#include <wtf/WeakRef.h>
+
+namespace WebCore {
+class ImageTransferSessionVT;
+class LocalSampleBufferDisplayLayer;
+enum class VideoFrameRotation : uint16_t;
+};
+
+namespace WebKit {
+class GPUConnectionToWebProcess;
+struct SharedPreferencesForWebProcess;
+
+class RemoteSampleBufferDisplayLayer : public ThreadSafeRefCounted<RemoteSampleBufferDisplayLayer, WTF::DestructionThread::MainRunLoop>, public WebCore::SampleBufferDisplayLayerClient, public IPC::MessageReceiver, private IPC::MessageSender {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteSampleBufferDisplayLayer);
+public:
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
+    static RefPtr<RemoteSampleBufferDisplayLayer> create(GPUConnectionToWebProcess&, SampleBufferDisplayLayerIdentifier, Ref<IPC::Connection>&&, RemoteSampleBufferDisplayLayerManager&);
+    ~RemoteSampleBufferDisplayLayer();
+
+    USING_CAN_MAKE_WEAKPTR(WebCore::SampleBufferDisplayLayerClient);
+
+    using LayerInitializationCallback = CompletionHandler<void(WebCore::HostingContext)>;
+    void initialize(bool hideRootLayer, WebCore::IntSize, bool shouldMaintainAspectRatio, bool canShowWhileLocked, LayerInitializationCallback&&);
+
+    // IPC::MessageReceiver
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+
+    CGRect bounds() const;
+    void updateBoundsAndPosition(CGRect, std::optional<WTF::MachSendRightAnnotated>&&);
+
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+
+private:
+    RemoteSampleBufferDisplayLayer(GPUConnectionToWebProcess&, SampleBufferDisplayLayerIdentifier, Ref<IPC::Connection>&&, RemoteSampleBufferDisplayLayerManager&);
+
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(uint64_t);
+#endif
+    void updateDisplayMode(bool hideDisplayLayer, bool hideRootLayer);
+    void flush();
+    void flushAndRemoveImage();
+    void play();
+    void pause();
+    void enqueueVideoFrame(SharedVideoFrame&&);
+    void clearVideoFrames();
+    void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
+    void setSharedVideoFrameMemory(WebCore::SharedMemory::Handle&&);
+    void setShouldMaintainAspectRatio(bool shouldMaintainAspectRatio);
+
+    // IPC::MessageSender
+    IPC::Connection* messageSenderConnection() const final;
+    uint64_t messageSenderDestinationID() const final { return m_identifier.toUInt64(); }
+
+    // WebCore::SampleBufferDisplayLayerClient
+    void sampleBufferDisplayLayerStatusDidFail() final;
+    void updateVideoFrameCounters(uint64_t, uint64_t) final;
+#if PLATFORM(IOS_FAMILY)
+    bool canShowWhileLocked() const final { return false; }
+#endif
+
+    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnection WTF_GUARDED_BY_CAPABILITY(m_consumeThread);
+    SampleBufferDisplayLayerIdentifier m_identifier;
+    const Ref<IPC::Connection> m_connection;
+    const RefPtr<WebCore::LocalSampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
+    std::unique_ptr<LayerHostingContext> m_layerHostingContext;
+    SharedVideoFrameReader m_sharedVideoFrameReader;
+    ThreadLikeAssertion m_consumeThread NO_UNIQUE_ADDRESS;
+    ThreadSafeWeakPtr<RemoteSampleBufferDisplayLayerManager> m_remoteSampleBufferDisplayLayerManager;
+};
+
+}
+
+#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)

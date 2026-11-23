@@ -3728,7 +3728,6 @@ JSBiquadFilterType.cpp
 JSBitrateMode.cpp
 JSBlob.cpp
 JSBlobCallback.cpp
-JSBlobEvent.cpp
 JSBlobPropertyBag.cpp
 JSBroadcastChannel.cpp
 JSBufferedChangeEvent.cpp

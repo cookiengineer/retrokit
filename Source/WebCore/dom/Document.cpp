@@ -6019,12 +6019,6 @@ void Document::noteUserInteractionWithMediaElement()
     updateIsPlayingMedia();
 }
 
-bool Document::isCapturing() const
-{
-    return MediaProducer::isCapturing(m_mediaState);
-}
-
-
 void Document::updateIsPlayingMedia()
 {
     ASSERT(!m_audioProducers.hasNullReferences());
@@ -11506,11 +11500,6 @@ void Document::removeCanvasNeedingPreparationForDisplayOrFlush(CanvasRenderingCo
 
 void Document::updateSleepDisablerIfNeeded()
 {
-    MediaProducerMediaStateFlags activeVideoCaptureMask { MediaProducerMediaState::HasActiveVideoCaptureDevice, MediaProducerMediaState::HasActiveScreenCaptureDevice, MediaProducerMediaState::HasActiveWindowCaptureDevice };
-    if (m_mediaState & activeVideoCaptureMask) {
-        m_sleepDisabler = makeUnique<SleepDisabler>("com.apple.WebCore: Document doing camera, screen or window capture"_s, PAL::SleepDisabler::Type::Display, pageID());
-        return;
-    }
     m_sleepDisabler = nullptr;
 }
 

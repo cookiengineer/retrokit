@@ -46,11 +46,7 @@ public:
     PermissionsPolicy(const Document&);
 
     enum class Feature : uint8_t {
-        Camera = 0,
-        Microphone,
-        SpeakerSelection,
-        DisplayCapture,
-        Payment,
+        Payment = 0,
         ScreenWakeLock,
         SyncXHR,
         Fullscreen,

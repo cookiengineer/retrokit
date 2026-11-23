@@ -1948,33 +1948,6 @@ CaptionDisplaySettingsEnabled:
     WebCore:
       default: false
 
-CaptureAudioInGPUProcessEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "GPU Process: Audio Capture"
-  humanReadableDescription: "Enable audio capture in GPU Process"
-  webcoreBinding: none
-  condition: ENABLE(MEDIA_STREAM)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: WebKit::defaultCaptureAudioInGPUProcessEnabled()
-
-CaptureVideoInGPUProcessEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "GPU Process: Video Capture"
-  humanReadableDescription: "Enable video capture in GPU Process"
-  webcoreBinding: none
-  condition: ENABLE(MEDIA_STREAM)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
-      default: false
-
 CaretBrowsingEnabled:
   type: bool
   status: embedder
@@ -3058,32 +3031,6 @@ ExplicitResourceManagementEnabled:
     WebKit:
       default: false
 
-ExposeCaptureDevicesAfterCaptureEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "Expose all capture devices when one is used"
-  humanReadableDescription: "Expose all capture devices when one is used"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKit:
-      default: true
-    WebCore:
-      default: false
-
-ExposeDefaultSpeakerAsSpecificDeviceEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "Expose the system default speaker as a specific device"
-  humanReadableDescription: "Expose the system default speaker as a specific device"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
 ExposeRollAngleAsTwistEnabled:
   type: bool
   status: unstable
@@ -3095,34 +3042,6 @@ ExposeRollAngleAsTwistEnabled:
     WebKitLegacy:
      default: false
     WebKit:
-      default: false
-    WebCore:
-      default: false
-
-ExposeSpeakersEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "Allow speaker device selection"
-  humanReadableDescription: "Allow speaker device selection"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      default: false
-
-ExposeSpeakersWithoutMicrophoneEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "Allow selection of speaker device without related microphone"
-  humanReadableDescription: "Allow selection of speaker device without related microphone"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKit:
-      "PLATFORM(COCOA)": true
       default: false
     WebCore:
       default: false
@@ -3523,18 +3442,6 @@ GetBoundingClientRectZoomedEnabled:
       default: true
     WebCore:
       default: true
-
-GetUserMediaRequiresFocus:
-  type: bool
-  humanReadableName: "GetUserMedia Requires Focus"
-  humanReadableDescription: "Enable GetUserMedia Requires Focus"
-  status: internal
-  category: media
-  defaultValue:
-    WebKit:
-      default: false
-    WebCore:
-      default: false
 
 GlobalPrivacyControlEnabled:
   type: bool
@@ -3951,21 +3858,6 @@ ImageAnalysisDuringFindInPageEnabled:
     WebCore:
       default: false
 
-ImageCaptureEnabled:
-  type: bool
-  status: stable
-  category: media
-  humanReadableName: "Image Capture API"
-  humanReadableDescription: "Enable Image Capture API"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      "PLATFORM(COCOA)": true
-      default: false
-
 ImageControlsEnabled:
   type: bool
   status: unstable
@@ -3993,26 +3885,6 @@ ImportDeferEnabled:
   defaultValue:
     WebKit:
       default: false
-
-InactiveMediaCaptureStreamRepromptIntervalInMinutes:
-  type: double
-  status: embedder
-  condition: ENABLE(MEDIA_STREAM)
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: 10
-
-InactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes:
-  type: double
-  status: embedder
-  condition: ENABLE(MEDIA_STREAM)
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: defaultInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes()
 
 IncludeIgnoredInCoreAXTree:
   type: bool
@@ -5147,15 +5019,6 @@ LogsPageMessagesToSystemConsoleEnabled:
     WebCore:
       default: false
 
-LongRunningMediaCaptureStreamRepromptIntervalInHours:
-  type: double
-  status: embedder
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: 24
-
 LowPowerVideoAudioBufferSizeEnabled:
   type: bool
   status: embedder
@@ -5175,21 +5038,6 @@ MainContentUserGestureOverrideEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      default: false
-    WebCore:
-      default: false
-
-ManageCaptureStatusBarInGPUProcessEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "GPU Process: Capture Status Bar management"
-  humanReadableDescription: "Enable Capture Status Bar management in GPU Process"
-  condition: ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
-  defaultValue:
-    WebKit:
-      default: WebKit::defaultManageCaptureStatusBarInGPUProcessEnabled()
-    WebKitLegacy:
       default: false
     WebCore:
       default: false
@@ -5360,18 +5208,6 @@ MediaCaptionFormatTypesAllowedInLockdownMode:
     WebKit:
       default: '"c608,wvtt"_str'
 
-MediaCaptureRequiresSecureConnection:
-  type: bool
-  humanReadableName: "Media Capture Requires Secure Connection"
-  humanReadableDescription: "Enable Media Capture Requires Secure Connection"
-  status: internal
-  category: media
-  defaultValue:
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
 MediaCodecTypesAllowedInLockdownMode:
   type: String
   status: embedder
@@ -5461,18 +5297,6 @@ MediaDataLoadsAutomatically:
 
 # FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely (though we should still set the default value to false when initializing settings).
 
-MediaDevicesEnabled:
-  type: bool
-  humanReadableName: "Media Devices"
-  humanReadableDescription: "Enable Media Devices"
-  status: internal
-  category: media
-  defaultValue:
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
 MediaEnabled:
   type: bool
   status: embedder
@@ -5525,21 +5349,6 @@ MediaPreloadingEnabled:
       default: false
 
 # FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
-MediaSessionCaptureToggleAPIEnabled:
-  type: bool
-  status: stable
-  category: media
-  humanReadableName: "MediaSession capture related API"
-  humanReadableDescription: "Enable MediaSession capture related API"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "PLATFORM(COCOA)": true
-      default: false
-    WebCore:
-      default: false
-
 MediaSessionCoordinatorEnabled:
   type: bool
   status: mature
@@ -5728,18 +5537,6 @@ MinimumZoomFontSize:
     WebCore:
       "PLATFORM(WATCHOS)": 30
       default: 15
-
-MockCaptureDevicesEnabled:
-  type: bool
-  humanReadableName: "Mock Capture Devices"
-  humanReadableDescription: "Enable Mock Capture Devices"
-  status: internal
-  category: media
-  defaultValue:
-    WebKit:
-      default: false
-    WebCore:
-      default: false
 
 MockScrollbarsControllerEnabled:
   type: bool
@@ -6394,24 +6191,6 @@ PeerConnectionEnabled:
     WebKit:
       default: false
     WebCore:
-      default: false
-
-PerElementSpeakerSelectionEnabled:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "Allow per media element speaker device selection"
-  humanReadableDescription: "Allow per media element speaker device selection"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKit:
-      "PLATFORM(COCOA)": true
-      "PLATFORM(WPE)": true
-      "PLATFORM(GTK)": true
-      default: false
-    WebCore:
-      "PLATFORM(WPE)": true
-      "PLATFORM(GTK)": true
       default: false
 
 PermissionsAPIEnabled:
@@ -8076,21 +7855,6 @@ SpatialPortalEnabled:
       default: false
 
 # FIXME: Is this implemented for WebKitLegacy? If not, this should be excluded from WebKitLegacy entirely.
-SpeakerSelectionRequiresUserGesture:
-  type: bool
-  status: internal
-  category: media
-  humanReadableName: "Require a user gesture for speaker selection"
-  humanReadableDescription: "Require a user gesture for speaker selection"
-  condition: ENABLE(MEDIA_STREAM)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
 SpeculationRulesPrefetchEnabled:
   type: bool
   status: stable
@@ -8816,20 +8580,6 @@ UpgradeKnownHostsToHTTPSEnabled:
     WebKit:
       default: true
 
-UseAVCaptureDeviceRotationCoordinatorAPI:
-  type: bool
-  status: internal
-  humanReadableName: "Use AVCaptureDeviceRotationCoordinator API"
-  humanReadableDescription: "Use AVCaptureDeviceRotationCoordinator API"
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  condition: HAVE(AVCAPTUREDEVICEROTATIONCOORDINATOR)
-  defaultValue:
-    WebKit:
-      "PLATFORM(APPLETV)": true
-      default: false
-  sharedPreferenceForWebProcess: true
-
 UseAppKitGestures:
   type: bool
   status: internal
@@ -8917,19 +8667,6 @@ UseGPUProcessForDOMRenderingEnabled:
     WebKit:
       default: defaultUseGPUProcessForDOMRenderingEnabled()
   sharedPreferenceForWebProcess: true
-
-UseGPUProcessForDisplayCapture:
-  type: bool
-  status: mature
-  category: media
-  humanReadableName: "GPU Process: Screen and Window capture"
-  humanReadableDescription: "Display capture in GPU Process"
-  webcoreBinding: none
-  condition: HAVE(SCREEN_CAPTURE_KIT)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: true
 
 UseGPUProcessForMediaEnabled:
   type: bool

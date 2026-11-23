@@ -109,7 +109,6 @@ class RemoteRemoteCommandListenerProxy;
 class RemoteRenderingBackend;
 class RemoteSampleBufferDisplayLayerManager;
 class RemoteSharedResourceCache;
-class UserMediaCaptureManagerProxy;
 class VideoReceiverEndpointManager;
 struct GPUProcessConnectionParameters;
 struct MediaOverridesForTesting;
@@ -247,8 +246,6 @@ public:
 #if ENABLE(EXTENSION_CAPABILITIES)
     String mediaPlaybackEnvironment(WebCore::PageIdentifier);
     void setMediaPlaybackEnvironment(WebCore::PageIdentifier, const String&);
-    String displayCaptureEnvironment(WebCore::PageIdentifier);
-    void setDisplayCaptureEnvironment(WebCore::PageIdentifier, const String&);
 #endif
 
 #if ENABLE(IPC_TESTING_API)
@@ -409,7 +406,6 @@ private:
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     HashMap<WebCore::PageIdentifier, String> m_mediaPlaybackEnvironments;
-    HashMap<WebCore::PageIdentifier, String> m_displayCaptureEnvironments;
 #endif
 
 #if ENABLE(ROUTING_ARBITRATION) && HAVE(AVAUDIO_ROUTING_ARBITER)

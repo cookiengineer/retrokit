@@ -1033,7 +1033,6 @@ int main(int argc, char *argv[])
     WebKitSettings *webkitSettings = webkit_settings_new();
     webkit_settings_set_enable_developer_extras(webkitSettings, TRUE);
     webkit_settings_set_enable_webgl(webkitSettings, TRUE);
-    webkit_settings_set_enable_media_stream(webkitSettings, TRUE);
 
     if (!addSettingsGroupToContext(context, webkitSettings))
         g_clear_object(&webkitSettings);

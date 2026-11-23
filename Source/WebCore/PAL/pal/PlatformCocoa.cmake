@@ -60,7 +60,6 @@ list(APPEND PAL_PUBLIC_HEADERS
     mac/DataDetectorsSoftLink.h
     mac/LookupSoftLink.h
     mac/QuickLookUISoftLink.h
-    mac/ScreenCaptureKitSoftLink.h
 
     spi/cf/CFNetworkConnectionCacheSPI.h
     spi/cf/CFNetworkSPI.h

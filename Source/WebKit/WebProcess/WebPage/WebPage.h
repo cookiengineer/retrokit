@@ -173,7 +173,6 @@ namespace WebCore {
 
 class AXIsolatedTree;
 class CachedPage;
-class CaptureDevice;
 class DocumentLoader;
 class DocumentSyncData;
 class DragData;
@@ -260,7 +259,6 @@ enum class LayerTreeAsTextOptions : uint16_t;
 enum class LayoutMilestone : uint16_t;
 enum class LinkDecorationFilteringTrigger : uint8_t;
 enum class MediaConstraintType : uint8_t;
-enum class MediaProducerMediaCaptureKind : uint8_t;
 enum class MediaProducerMediaState : uint32_t;
 enum class MediaProducerMutedState : uint8_t;
 enum class PlatformEventModifier : uint8_t;
@@ -356,7 +354,6 @@ struct TextRecognitionResult;
 struct TranslationContextMenuInfo;
 #endif
 struct UserGestureTokenData;
-struct UserMediaRequestIdentifierType;
 struct ViewportArguments;
 
 struct DigitalCredentialsResponseData;
@@ -377,7 +374,6 @@ using NavigationIdentifier = ObjectIdentifier<NavigationIdentifierType, uint64_t
 using PlatformDisplayID = uint32_t;
 using ScrollingNodeID = ProcessQualified<ObjectIdentifier<ScrollingNodeIDType>>;
 using ScrollOffset = IntPoint;
-using UserMediaRequestIdentifier = ObjectIdentifier<UserMediaRequestIdentifierType>;
 
 namespace TextExtraction {
 struct FilterRuleData;
@@ -434,7 +430,6 @@ class SandboxExtensionHandle;
 class SharedMemoryHandle;
 class TextCheckingControllerProxy;
 class TextAnimationController;
-class UserMediaPermissionRequestManager;
 class ViewGestureGeometryCollector;
 class WebColorChooser;
 class WebContextMenu;
@@ -1132,8 +1127,6 @@ public:
     WebCore::IntDegrees deviceOrientation() const { return m_deviceOrientation; }
     void didReceiveMobileDocType(bool);
 
-    bool screenIsBeingCaptured() const { return m_screenIsBeingCaptured; }
-    void setScreenIsBeingCaptured(bool);
 
     void setInsertionPointColor(WebCore::Color);
 
@@ -1485,7 +1478,6 @@ public:
     void setMediaVolume(float);
     void setMuted(WebCore::MediaProducerMutedStateFlags, CompletionHandler<void()>&&);
     void setMayStartMediaWhenInWindow(bool);
-    void stopMediaCapture(WebCore::MediaProducerMediaCaptureKind, CompletionHandler<void()>&&);
 
     void updateMainFrameScrollOffsetPinning();
 
@@ -2065,8 +2057,6 @@ public:
 #if ENABLE(EXTENSION_CAPABILITIES)
     const String& mediaPlaybackEnvironment() const LIFETIME_BOUND { return m_mediaPlaybackEnvironment; }
     void setMediaPlaybackEnvironment(const String&);
-    const String& displayCaptureEnvironment() const LIFETIME_BOUND { return m_displayCaptureEnvironment; }
-    void setDisplayCaptureEnvironment(const String&);
 #endif
 
 #if ENABLE(WRITING_TOOLS)
@@ -3114,7 +3104,6 @@ private:
     bool m_hasStablePageScaleFactor { true };
     bool m_isInStableState { true };
     bool m_shouldRevealCurrentSelectionAfterInsertion { true };
-    bool m_screenIsBeingCaptured { false };
     std::optional<double> m_previousViewportConfigurationMinimumScale;
     MonotonicTime m_oldestNonStableUpdateVisibleContentRectsTimestamp;
     Seconds m_estimatedLatency { 0 };
@@ -3307,7 +3296,6 @@ private:
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     String m_mediaPlaybackEnvironment;
-    String m_displayCaptureEnvironment;
 #endif
 
 #if ENABLE(WRITING_TOOLS)

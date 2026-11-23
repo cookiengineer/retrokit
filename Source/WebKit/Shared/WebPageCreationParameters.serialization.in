@@ -138,7 +138,6 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebCore::IntDegrees deviceOrientation;
     WebKit::HardwareKeyboardState hardwareKeyboardState;
     bool canShowWhileLocked;
-    bool isCapturingScreen;
     WebCore::Color insertionPointColor;
 #endif
 #if PLATFORM(COCOA)
@@ -209,12 +208,6 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     bool crossOriginAccessControlCheckEnabled;
     String processDisplayName;
 
-    bool shouldCaptureAudioInUIProcess;
-    bool shouldCaptureAudioInGPUProcess;
-    bool shouldCaptureVideoInUIProcess;
-    bool shouldCaptureVideoInGPUProcess;
-    bool shouldCaptureDisplayInUIProcess;
-    bool shouldCaptureDisplayInGPUProcess;
     bool shouldRenderCanvasInGPUProcess;
     bool shouldRenderDOMInGPUProcess;
     bool shouldPlayMediaInGPUProcess;

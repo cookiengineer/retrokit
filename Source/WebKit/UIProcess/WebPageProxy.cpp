@@ -424,10 +424,6 @@
 #endif
 
 
-#if HAVE(SCREEN_CAPTURE_KIT)
-#import <WebCore/ScreenCaptureKitSharingSessionManager.h>
-#endif
-
 #if USE(QUICK_LOOK)
 #include <WebCore/PreviewConverter.h>
 #endif
@@ -591,22 +587,6 @@ void WebPageProxy::takeAudibleActivity()
     });
 }
 
-void WebPageProxy::takeCapturingActivity()
-{
-    m_mainFrameProcessActivityState->takeCapturingActivity();
-    protect(browsingContextGroup())->forEachRemotePage(*this, [](auto& remotePageProxy) {
-        remotePageProxy.processActivityState().takeCapturingActivity();
-    });
-}
-
-void WebPageProxy::takeMutedCaptureAssertion()
-{
-    m_mainFrameProcessActivityState->takeMutedCaptureAssertion();
-    protect(browsingContextGroup())->forEachRemotePage(*this, [](auto& remotePageProxy) {
-        remotePageProxy.processActivityState().takeMutedCaptureAssertion();
-    });
-}
-
 void WebPageProxy::takeNetworkActivity()
 {
     m_mainFrameProcessActivityState->takeNetworkActivity();
@@ -662,22 +642,6 @@ void WebPageProxy::dropAudibleActivity()
     });
 }
 
-void WebPageProxy::dropCapturingActivity()
-{
-    m_mainFrameProcessActivityState->dropCapturingActivity();
-    protect(browsingContextGroup())->forEachRemotePage(*this, [](auto& remotePageProxy) {
-        remotePageProxy.processActivityState().dropCapturingActivity();
-    });
-}
-
-void WebPageProxy::dropMutedCaptureAssertion()
-{
-    m_mainFrameProcessActivityState->dropMutedCaptureAssertion();
-    protect(browsingContextGroup())->forEachRemotePage(*this, [](auto& remotePageProxy) {
-        remotePageProxy.processActivityState().dropMutedCaptureAssertion();
-    });
-}
-
 void WebPageProxy::dropNetworkActivity()
 {
     m_mainFrameProcessActivityState->dropNetworkActivity();
@@ -704,24 +668,6 @@ bool WebPageProxy::hasValidAudibleActivity() const
     return hasValidAudibleActivity;
 }
 
-bool WebPageProxy::hasValidCapturingActivity() const
-{
-    bool hasValidCapturingActivity = hasValidMainFrameCapturingActivity();
-    protect(browsingContextGroup())->forEachRemotePage(*this, [&](auto& remotePageProxy) {
-        hasValidCapturingActivity &= remotePageProxy.processActivityState().hasValidCapturingActivity();
-    });
-    return hasValidCapturingActivity;
-}
-
-bool WebPageProxy::hasValidMutedCaptureAssertion() const
-{
-    bool hasValidMutedCaptureAssertion = hasValidMainFrameMutedCaptureAssertion();
-    protect(browsingContextGroup())->forEachRemotePage(*this, [&](auto& remotePageProxy) {
-        hasValidMutedCaptureAssertion &= remotePageProxy.processActivityState().hasValidMutedCaptureAssertion();
-    });
-    return hasValidMutedCaptureAssertion;
-}
-
 bool WebPageProxy::hasValidNetworkActivity() const
 {
     bool hasValidNetworkActivity = m_mainFrameProcessActivityState->hasValidNetworkActivity();
@@ -739,16 +685,6 @@ bool WebPageProxy::hasValidMainFrameVisibleActivity() const
 bool WebPageProxy::hasValidMainFrameAudibleActivity() const
 {
     return m_mainFrameProcessActivityState->hasValidAudibleActivity();
-}
-
-bool WebPageProxy::hasValidMainFrameCapturingActivity() const
-{
-    return m_mainFrameProcessActivityState->hasValidCapturingActivity();
-}
-
-bool WebPageProxy::hasValidMainFrameMutedCaptureAssertion() const
-{
-    return m_mainFrameProcessActivityState->hasValidMutedCaptureAssertion();
 }
 
 bool WebPageProxy::hasValidMainFrameNetworkActivity() const
@@ -803,7 +739,6 @@ WebPageProxy::Internals::Internals(WebPageProxy& page, bool processInheritedFrom
     , pageLoadState(page)
     , resetRecentCrashCountTimer(RunLoop::mainSingleton(), "WebPageProxy::Internals::ResetRecentCrashCountTimer"_s, &page, &WebPageProxy::resetRecentCrashCount)
     , tryCloseTimeoutTimer(RunLoop::mainSingleton(), "WebPageProxy::Internals::TryCloseTimeoutTimer"_s, &page, &WebPageProxy::tryCloseTimedOut)
-    , updateReportedMediaCaptureStateTimer(RunLoop::mainSingleton(), "updateReportedMediaCaptureStateTimer"_s, &page, &WebPageProxy::updateReportedMediaCaptureState)
 
 #if HAVE(DISPLAY_LINK)
     , wheelEventActivityHysteresis([weakPage = WeakPtr { page }](PAL::HysteresisState state) {
@@ -3452,8 +3387,6 @@ void WebPageProxy::updateActivityState(OptionSet<ActivityState> flagsToUpdate)
         internals().activityState.add(ActivityState::IsAudible);
     if (flagsToUpdate & ActivityState::IsLoading && pageLoadState().isLoading())
         internals().activityState.add(ActivityState::IsLoading);
-    if (flagsToUpdate & ActivityState::IsCapturingMedia && internals().mediaState.containsAny(MediaProducer::ActiveCaptureMask))
-        internals().activityState.add(ActivityState::IsCapturingMedia);
 }
 
 void WebPageProxy::updateActivityState()
@@ -3591,11 +3524,6 @@ void WebPageProxy::dispatchActivityStateChange()
             viewIsBecomingInvisible();
     }
 
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    if (internals().potentiallyChangedActivityStateFlags & ActivityState::IsConnectedToHardwareConsole)
-        isConnectedToHardwareConsoleDidChange();
-#endif
-
     bool isNowInWindow = (changed & ActivityState::IsInWindow) && isInWindow();
     // We always want to wait for the Web process to reply if we've been in-window before and are coming back in-window.
     if (m_viewWasEverInWindow && isNowInWindow) {
@@ -3671,7 +3599,6 @@ void WebPageProxy::dispatchActivityStateChange()
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     updateMediaCapability();
-    updateDisplayCaptureCapability();
 #endif
 
 #if PLATFORM(COCOA)
@@ -3726,26 +3653,6 @@ void WebPageProxy::updateThrottleState()
         }
     }
 
-    bool isCapturingMedia = internals().activityState.contains(ActivityState::IsCapturingMedia);
-    bool hasMutedCapture = internals().mediaState.containsAny(MediaProducer::MutedCaptureMask);
-
-    if (!isCapturingMedia && hasMutedCapture) {
-        WEBPAGEPROXY_RELEASE_LOG(ProcessSuspension, "updateThrottleState: taking a web process background assertion for muted media capture");
-        takeMutedCaptureAssertion();
-    } else if (hasValidMutedCaptureAssertion()) {
-        WEBPAGEPROXY_RELEASE_LOG(ProcessSuspension, "updateThrottleState: releasing a web process background assertion for muted media capture");
-        dropMutedCaptureAssertion();
-    }
-
-    if (isCapturingMedia) {
-        if (!hasValidCapturingActivity()) {
-            WEBPAGEPROXY_RELEASE_LOG(ProcessSuspension, "updateThrottleState: UIProcess is taking a foreground assertion because media capture is active");
-            takeCapturingActivity();
-        }
-    } else if (hasValidCapturingActivity()) {
-        WEBPAGEPROXY_RELEASE_LOG(ProcessSuspension, "updateThrottleState: UIProcess is releasing a foreground assertion because media capture is no longer active");
-        dropCapturingActivity();
-    }
 #endif
 }
 
@@ -4057,55 +3964,7 @@ bool WebPageProxy::isAudioMuted() const
     return internals().mutedState.contains(MediaProducerMutedState::AudioIsMuted);
 }
 
-bool WebPageProxy::isMediaStreamCaptureMuted() const
-{
-    return internals().mutedState.containsAny(MediaProducer::MediaStreamCaptureIsMuted);
-}
-
-void WebPageProxy::setMediaStreamCaptureMuted(bool muted)
-{
-    auto state = internals().mutedState;
-    if (muted)
-        state.add(WebCore::MediaProducer::MediaStreamCaptureIsMuted);
-    else
-        state.remove(WebCore::MediaProducer::MediaStreamCaptureIsMuted);
-    setMuted(state);
-}
-
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-void WebPageProxy::isConnectedToHardwareConsoleDidChange()
-{
-    SetForScope<bool> isProcessing(m_isProcessingIsConnectedToHardwareConsoleDidChangeNotification, true);
-    if (m_legacyMainFrameProcess->isConnectedToHardwareConsole()) {
-        if (m_captureWasMutedDueToDisconnectedHardwareConsole)
-            setMediaStreamCaptureMuted(false);
-
-        m_captureWasMutedDueToDisconnectedHardwareConsole = false;
-        return;
-    }
-
-    if (internals().mutedState.containsAny(WebCore::MediaProducer::MediaStreamCaptureIsMuted))
-        return;
-
-    m_captureWasMutedDueToDisconnectedHardwareConsole = true;
-    setMediaStreamCaptureMuted(true);
-}
-#endif
-
-bool WebPageProxy::isAllowedToChangeMuteState() const
-{
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    return m_isProcessingIsConnectedToHardwareConsoleDidChangeNotification || m_legacyMainFrameProcess->isConnectedToHardwareConsole();
-#else
-    return true;
-#endif
-}
-
-void WebPageProxy::activateMediaStreamCaptureInPage()
-{
-    setMediaStreamCaptureMuted(false);
-}
-
 #if !PLATFORM(COCOA)
 void WebPageProxy::didCommitLayerTree(const RemoteLayerTreeTransaction&, const std::optional<MainFrameData>&, const PageData&, const TransactionID&)
 {
@@ -8807,10 +8666,8 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
 
 
 #if ENABLE(EXTENSION_CAPABILITIES)
-    if (frame->isMainFrame()) {
+    if (frame->isMainFrame())
         resetMediaCapability();
-        resetDisplayCaptureCapability();
-    }
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS)
@@ -11555,53 +11412,24 @@ void WebPageProxy::setMediaVolume(float volume)
 void WebPageProxy::setMuted(WebCore::MediaProducerMutedStateFlags state, FromApplication fromApplication, CompletionHandler<void()>&& completionHandler)
 {
 
-    if (!isAllowedToChangeMuteState())
-        state.add(WebCore::MediaProducer::MediaStreamCaptureIsMuted);
+    WEBPAGEPROXY_RELEASE_LOG(Media, "setMuted, app state = %d", state.toRaw());
 
-#if ENABLE(MEDIA_STREAM)
-    auto newState = applyWebAppDesiredMutedKinds(state, m_mutedCaptureKindsDesiredByWebApp);
-#else
-    auto newState = state;
-#endif
-    WEBPAGEPROXY_RELEASE_LOG(Media, "setMuted, app state = %d, final state = %d", state.toRaw(), newState.toRaw());
-
-    internals().mutedState = newState;
+    internals().mutedState = state;
 
     if (!hasRunningProcess())
         return completionHandler();
 
 
     forEachWebContentProcess([&] (auto& process, auto pageID) {
-        process.pageMutedStateChanged(pageID, newState);
+        process.pageMutedStateChanged(pageID, state);
     });
 
     auto aggregator = CallbackAggregator::create(WTF::move(completionHandler));
     forEachWebContentProcess([&](auto& webProcess, auto pageID) {
-        webProcess.sendWithAsyncReply(Messages::WebPage::SetMuted(newState), [aggregator] { }, pageID);
+        webProcess.sendWithAsyncReply(Messages::WebPage::SetMuted(state), [aggregator] { }, pageID);
     });
 
-    activityStateDidChange({ ActivityState::IsAudible, ActivityState::IsCapturingMedia });
-}
-
-void WebPageProxy::setMediaCaptureEnabled(bool enabled)
-{
-    m_mediaCaptureEnabled = enabled;
-
-    if (!hasRunningProcess())
-        return;
-
-}
-
-void WebPageProxy::stopMediaCapture(MediaProducerMediaCaptureKind kind, CompletionHandler<void()>&& completionHandler)
-{
-    if (!hasRunningProcess())
-        return completionHandler();
-
-}
-
-void WebPageProxy::stopMediaCapture(MediaProducerMediaCaptureKind kind)
-{
-    stopMediaCapture(kind, [] { });
+    activityStateDidChange({ ActivityState::IsAudible });
 }
 
 void WebPageProxy::requestMediaPlaybackState(CompletionHandler<void(MediaPlaybackState)>&& completionHandler)
@@ -13930,9 +13758,6 @@ static std::span<const ASCIILiteral> gpuMachServices()
 static bool shouldBlockIOKit(const WebPreferences& preferences)
 {
     if (!preferences.useGPUProcessForMediaEnabled()
-        || !preferences.captureVideoInGPUProcessEnabled()
-        || !preferences.captureAudioInGPUProcessEnabled()
-        || !preferences.webRTCPlatformCodecsInGPUProcessEnabled()
         || !preferences.useGPUProcessForCanvasRenderingEnabled()
         || !preferences.useGPUProcessForDOMRenderingEnabled()
         || !preferences.useGPUProcessForWebGLEnabled())
@@ -14168,10 +13993,6 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
 #endif
 
     // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
-    parameters.shouldCaptureAudioInGPUProcess = preferences->captureAudioInGPUProcessEnabled();
-    // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
-    parameters.shouldCaptureVideoInGPUProcess = preferences->captureVideoInGPUProcessEnabled();
-    // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
     parameters.shouldRenderCanvasInGPUProcess = preferences->useGPUProcessForCanvasRenderingEnabled();
     // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
     parameters.shouldRenderDOMInGPUProcess = useGPUProcessForDOMRenderingEnabled();
@@ -14184,8 +14005,6 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
 
     // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
     parameters.shouldEnableVP9Decoder = preferences->vp9DecoderEnabled();
-    parameters.shouldCaptureDisplayInUIProcess = m_configuration->processPool().configuration().shouldCaptureDisplayInUIProcess();
-    parameters.shouldCaptureDisplayInGPUProcess = preferences->useGPUProcessForDisplayCapture();
 #if ENABLE(APP_BOUND_DOMAINS)
     parameters.limitsNavigationsToAppBoundDomains = m_limitsNavigationsToAppBoundDomains;
 #endif
@@ -14433,23 +14252,16 @@ bool WebPageProxy::shouldAlwaysPromptForPermission(PermissionName permissionName
     switch (permissionName) {
     // All cached permissions that are supported by platforms that support
     // WEB_ARCHIVE should always prompt.
-    case PermissionName::Camera:
-    case PermissionName::Microphone:
-        break;
-
     // Notifications are not available in ephemeral sessions.
     case PermissionName::Notifications:
     case PermissionName::Push:
 
     // These are not persistent permissions.
     case PermissionName::BackgroundFetch:
-    case PermissionName::DisplayCapture:
     case PermissionName::ScreenWakeLock:
-    case PermissionName::SpeakerSelection:
     case PermissionName::StorageAccess:
 
     // Not supported.
-    case PermissionName::Bluetooth:
     case PermissionName::Midi:
     case PermissionName::Nfc:
         ASSERT_NOT_REACHED();
@@ -14474,9 +14286,7 @@ void WebPageProxy::queryPermission(const ClientOrigin& clientOrigin, const Permi
     }
 #endif
 
-    if (descriptor.name == PermissionName::Camera) {
-    } else if (descriptor.name == PermissionName::Microphone) {
-    } else if (descriptor.name == PermissionName::Notifications || descriptor.name == PermissionName::Push) {
+    if (descriptor.name == PermissionName::Notifications || descriptor.name == PermissionName::Push) {
 #if ENABLE(NOTIFICATIONS)
         name = "notifications"_s;
 
@@ -14531,10 +14341,6 @@ void WebPageProxy::queryPermission(const ClientOrigin& clientOrigin, const Permi
 
 
 void WebPageProxy::syncIfMockDevicesEnabledChanged()
-{
-}
-
-void WebPageProxy::clearUserMediaState()
 {
 }
 
@@ -15888,25 +15694,8 @@ void WebPageProxy::didEndViewGesture()
         pageClient->didEndViewGesture();
 }
 
-void WebPageProxy::setIsPromptingForGetDisplayMedia(WebCore::MediaProducerMediaStateFlags state)
-{
-    auto isPrompting = state.containsAny(WebCore::MediaProducer::IsPromptingForDisplayCaptureMask);
-    internals().mainFrameMediaState.remove(MediaProducer::IsPromptingForDisplayCaptureMask);
-    if (isPrompting)
-        internals().mainFrameMediaState.add(state & WebCore::MediaProducer::IsPromptingForDisplayCaptureMask);
-
-    updatePlayingMediaDidChange(isPrompting ? CanDelayNotification::No : CanDelayNotification::Yes);
-}
-
 void WebPageProxy::isPlayingMediaDidChange(MediaProducerMediaStateFlags newState)
 {
-    // Preserve IsPromptingForWindow/ScreenCapture until display capture actually begins, preventing
-    // premature capability deactivation between prompt approval and the first isPlayingMediaDidChange
-    // with DisplayCaptureMask set. The prompting state is cleared directly in the denial/cancel path,
-    // and in invalidate() when the page is torn down while a prompt is pending.
-    if (internals().mainFrameMediaState.containsAny(MediaProducer::IsPromptingForDisplayCaptureMask) && !newState.containsAny(MediaProducer::DisplayCaptureMask))
-        newState.add(internals().mainFrameMediaState & MediaProducer::IsPromptingForDisplayCaptureMask);
-
 #if PLATFORM(IOS_FAMILY)
     if (!m_legacyMainFrameProcess->throttler().shouldBeRunnable())
         return;
@@ -15930,29 +15719,9 @@ bool WebPageProxy::hasMediaStreaming() const
     return internals().mediaState.contains(MediaProducerMediaState::HasStreamingActivity);
 }
 
-bool WebPageProxy::isCapturingAudio() const
-{
-    return internals().mediaState.containsAny(MediaProducer::IsCapturingAudioMask);
-}
-
-bool WebPageProxy::isCapturingVideo() const
-{
-    return internals().mediaState.containsAny(MediaProducer::IsCapturingVideoMask);
-}
-
-bool WebPageProxy::hasActiveAudioStream() const
-{
-    return internals().mediaState.contains(MediaProducerMediaState::HasActiveAudioCaptureDevice);
-}
-
-bool WebPageProxy::hasActiveVideoStream() const
-{
-    return internals().mediaState.contains(MediaProducerMediaState::HasActiveVideoCaptureDevice);
-}
-
 MediaProducerMediaStateFlags WebPageProxy::reportedMediaState() const
 {
-    return internals().reportedMediaCaptureState | (internals().mediaState - MediaProducer::MediaCaptureMask);
+    return internals().mediaState;
 }
 
 void WebPageProxy::updatePlayingMediaDidChange(CanDelayNotification canDelayNotification)
@@ -15992,9 +15761,8 @@ void WebPageProxy::updatePlayingMediaDidChange(CanDelayNotification canDelayNoti
         pageClient->isPlayingAudioDidChange();
 
 
-    activityStateDidChange({ ActivityState::IsAudible, ActivityState::IsCapturingMedia });
+    activityStateDidChange({ ActivityState::IsAudible });
 
-    playingMediaMask.add(WebCore::MediaProducer::MediaCaptureMask);
     if ((oldState & playingMediaMask) != (internals().mediaState & playingMediaMask))
         m_uiClient->isPlayingMediaDidChange(*this);
 
@@ -16025,67 +15793,6 @@ void WebPageProxy::updatePlayingMediaDidChange(CanDelayNotification canDelayNoti
 void WebPageProxy::updatePlayingMediaDidChangeTimerFired()
 {
     updatePlayingMediaDidChange(CanDelayNotification::Yes);
-}
-
-void WebPageProxy::updateReportedMediaCaptureState()
-{
-    auto activeCaptureState = internals().mediaState & MediaProducer::MediaCaptureMask;
-    if (internals().reportedMediaCaptureState == activeCaptureState)
-        return;
-
-    bool haveReportedCapture = internals().reportedMediaCaptureState.containsAny(MediaProducer::MediaCaptureMask);
-    bool willReportCapture = !activeCaptureState.isEmpty();
-
-    if (haveReportedCapture && !willReportCapture && internals().updateReportedMediaCaptureStateTimer.isActive())
-        return;
-
-    if (!haveReportedCapture && willReportCapture)
-        internals().updateReportedMediaCaptureStateTimer.startOneShot(m_mediaCaptureReportingDelay);
-
-    WEBPAGEPROXY_RELEASE_LOG(WebRTC, "updateReportedMediaCaptureState: from %d to %d", internals().reportedMediaCaptureState.toRaw(), activeCaptureState.toRaw());
-
-    bool microphoneCaptureChanged = (internals().reportedMediaCaptureState & MediaProducer::MicrophoneCaptureMask) != (activeCaptureState & MediaProducer::MicrophoneCaptureMask);
-    bool cameraCaptureChanged = (internals().reportedMediaCaptureState & MediaProducer::VideoCaptureMask) != (activeCaptureState & MediaProducer::VideoCaptureMask);
-    bool displayCaptureChanged = (internals().reportedMediaCaptureState & MediaProducer::DisplayCaptureMask) != (activeCaptureState & MediaProducer::DisplayCaptureMask);
-    bool systemAudioCaptureChanged = (internals().reportedMediaCaptureState & MediaProducer::SystemAudioCaptureMask) != (activeCaptureState & MediaProducer::SystemAudioCaptureMask);
-
-    auto reportedDisplayCaptureSurfaces = internals().reportedMediaCaptureState & (MediaProducer::ScreenCaptureMask | MediaProducer::WindowCaptureMask);
-    auto activeDisplayCaptureSurfaces = activeCaptureState & (MediaProducer::ScreenCaptureMask | MediaProducer::WindowCaptureMask);
-    auto displayCaptureSurfacesChanged = reportedDisplayCaptureSurfaces != activeDisplayCaptureSurfaces;
-
-    RefPtr pageClient = this->pageClient();
-    if (pageClient) {
-        if (microphoneCaptureChanged)
-            pageClient->microphoneCaptureWillChange();
-        if (cameraCaptureChanged)
-            pageClient->cameraCaptureWillChange();
-        if (displayCaptureChanged)
-            pageClient->displayCaptureWillChange();
-        if (displayCaptureSurfacesChanged)
-            pageClient->displayCaptureSurfacesWillChange();
-        if (systemAudioCaptureChanged)
-            pageClient->systemAudioCaptureWillChange();
-    }
-
-    internals().reportedMediaCaptureState = activeCaptureState;
-    m_uiClient->mediaCaptureStateDidChange(internals().mediaState);
-
-    if (pageClient) {
-        if (microphoneCaptureChanged)
-            pageClient->microphoneCaptureChanged();
-        if (cameraCaptureChanged)
-            pageClient->cameraCaptureChanged();
-        if (displayCaptureChanged)
-            pageClient->displayCaptureChanged();
-        if (displayCaptureSurfacesChanged)
-            pageClient->displayCaptureSurfacesChanged();
-        if (systemAudioCaptureChanged)
-            pageClient->systemAudioCaptureChanged();
-    }
-
-#if ENABLE(EXTENSION_CAPABILITIES)
-    updateDisplayCaptureCapability();
-#endif
 }
 
 void WebPageProxy::videoControlsManagerDidChange()
@@ -17434,20 +17141,6 @@ void WebPageProxy::getProcessDisplayName(CompletionHandler<void(String&&)>&& com
     sendWithAsyncReply(Messages::WebPage::GetProcessDisplayName(), WTF::move(completionHandler));
 }
 
-void WebPageProxy::setMediaCaptureRotationForTesting(WebCore::IntDegrees rotation, const String& persistentId)
-{
-
-    setOrientationForMediaCapture(rotation);
-}
-
-void WebPageProxy::setOrientationForMediaCapture(WebCore::IntDegrees orientation)
-{
-    m_orientationForMediaCapture = orientation;
-    if (!hasRunningProcess())
-        return;
-
-}
-
 
 void WebPageProxy::getLoadedSubresourceDomains(CompletionHandler<void(Vector<RegistrableDomain>&&)>&& completionHandler)
 {
@@ -18728,12 +18421,6 @@ void WebPageProxy::takeActivitiesOnRemotePage(RemotePageProxy& remotePage)
 
     if (hasValidMainFrameAudibleActivity())
         remotePage.processActivityState().takeAudibleActivity();
-
-    if (hasValidMainFrameCapturingActivity())
-        remotePage.processActivityState().takeCapturingActivity();
-
-    if (hasValidMainFrameMutedCaptureAssertion())
-        remotePage.processActivityState().takeMutedCaptureAssertion();
 
     if (hasValidMainFrameNetworkActivity())
         remotePage.processActivityState().takeNetworkActivity();

@@ -133,7 +133,6 @@ SOFT_LINK_CLASS_OPTIONAL(Synapse, SYNotesActivationObserver)
 #endif
 
 #if HAVE(SCREEN_CAPTURE_KIT)
-#import <WebCore/ScreenCaptureKitSharingSessionManager.h>
 #endif
 
 #if ENABLE(APPLE_PAY_AMS_UI)
@@ -1230,12 +1229,10 @@ void WebPageProxy::setMediaCapability(RefPtr<MediaCapability>&& capability)
 
     if (!internals().mediaCapability) {
         WEBPAGEPROXY_RELEASE_LOG(ProcessCapabilities, "setMediaCapability: clearing media capability");
-        protect(legacyMainFrameProcess())->send(Messages::WebPage::SetDisplayCaptureEnvironment({ }), webPageIDInMainFrameProcess());
         return;
     }
 
     WEBPAGEPROXY_RELEASE_LOG(ProcessCapabilities, "setMediaCapability: creating (envID=%{public}s) for URL '%{sensitive}s'", internals().mediaCapability->environmentIdentifier().utf8().data(), internals().mediaCapability->webPageURL().string().utf8().data());
-    protect(legacyMainFrameProcess())->send(Messages::WebPage::SetDisplayCaptureEnvironment(protect(internals().mediaCapability)->environmentIdentifier()), webPageIDInMainFrameProcess());
 }
 
 void WebPageProxy::deactivateMediaCapability(MediaCapability& capability)
@@ -1298,9 +1295,6 @@ bool WebPageProxy::shouldDeactivateMediaCapability() const
     if (!mediaCapability || !mediaCapability->isActivatingOrActive())
         return false;
 
-    if (internals().mediaState & WebCore::MediaProducer::MediaCaptureMask)
-        return false;
-
     if (internals().mediaState.containsAny(MediaProducerMediaState::HasAudioOrVideo))
         return false;
 
@@ -1309,97 +1303,6 @@ bool WebPageProxy::shouldDeactivateMediaCapability() const
 
     return true;
 }
-
-const MediaCapability* WebPageProxy::displayCaptureCapability() const
-{
-    return internals().displayCaptureCapability.get();
-}
-
-void WebPageProxy::setDisplayCaptureCapability(RefPtr<MediaCapability>&& capability)
-{
-    if (RefPtr oldCapability = std::exchange(internals().displayCaptureCapability, nullptr))
-        deactivateDisplayCaptureCapability(*oldCapability);
-
-    internals().displayCaptureCapability = WTF::move(capability);
-
-    if (!internals().displayCaptureCapability) {
-        WEBPAGEPROXY_RELEASE_LOG(ProcessCapabilities, "setDisplayCaptureCapability: clearing capability");
-        protect(legacyMainFrameProcess())->send(Messages::WebPage::SetDisplayCaptureEnvironment({ }), webPageIDInMainFrameProcess());
-        return;
-    }
-
-    WEBPAGEPROXY_RELEASE_LOG(ProcessCapabilities, "setDisplayCaptureCapability: creating (envID=%{public}s) for URL '%{sensitive}s'", internals().displayCaptureCapability->environmentIdentifier().utf8().data(), internals().displayCaptureCapability->webPageURL().string().utf8().data());
-    protect(legacyMainFrameProcess())->send(Messages::WebPage::SetDisplayCaptureEnvironment(protect(internals().displayCaptureCapability)->environmentIdentifier()), webPageIDInMainFrameProcess());
-}
-
-void WebPageProxy::deactivateDisplayCaptureCapability(MediaCapability& capability)
-{
-    WEBPAGEPROXY_RELEASE_LOG(ProcessCapabilities, "deactivateDisplayCaptureCapability: deactivating (envID=%{public}s) for URL '%{sensitive}s'", capability.environmentIdentifier().utf8().data(), capability.webPageURL().string().utf8().data());
-    Ref processPool = protect(legacyMainFrameProcess())->processPool();
-    Ref granter = processPool->extensionCapabilityGranter();
-    granter->setMediaCapabilityActive(capability, false);
-    granter->revoke(capability, *this);
-}
-
-void WebPageProxy::resetDisplayCaptureCapability()
-{
-    if (!protect(preferences())->mediaCapabilityGrantsEnabled())
-        return;
-
-    URL currentURL { this->currentURL() };
-
-    if (!hasRunningProcess() || !currentURL.isValid()) {
-        setDisplayCaptureCapability(nullptr);
-        return;
-    }
-
-    RefPtr displayCaptureCapability = this->displayCaptureCapability();
-    if (!displayCaptureCapability || !protocolHostAndPortAreEqual(displayCaptureCapability->webPageURL(), currentURL))
-        setDisplayCaptureCapability(MediaCapability::create(WTF::move(currentURL), MediaCapability::Kind::DisplayCapture));
-}
-
-void WebPageProxy::updateDisplayCaptureCapability()
-{
-    RefPtr displayCaptureCapability = internals().displayCaptureCapability;
-    if (!displayCaptureCapability)
-        return;
-
-    if (shouldDeactivateDisplayCaptureCapability()) {
-        deactivateDisplayCaptureCapability(*displayCaptureCapability);
-        return;
-    }
-
-    Ref processPool = protect(legacyMainFrameProcess())->processPool();
-
-    if (shouldActivateDisplayCaptureCapability())
-        protect(processPool->extensionCapabilityGranter())->setMediaCapabilityActive(*displayCaptureCapability, true);
-
-    if (displayCaptureCapability->isActivatingOrActive())
-        protect(processPool->extensionCapabilityGranter())->grant(*displayCaptureCapability, *this);
-}
-
-bool WebPageProxy::shouldActivateDisplayCaptureCapability() const
-{
-    if (!isViewVisible())
-        return false;
-
-    return internals().mediaState.containsAny(MediaProducer::DisplayCaptureMask | MediaProducer::IsPromptingForDisplayCaptureMask);
-}
-
-bool WebPageProxy::shouldDeactivateDisplayCaptureCapability() const
-{
-    RefPtr displayCaptureCapability = this->displayCaptureCapability();
-    if (!displayCaptureCapability || !displayCaptureCapability->isActivatingOrActive())
-        return false;
-
-    if (internals().mediaState.containsAny(MediaProducer::DisplayCaptureMask | MediaProducer::IsPromptingForDisplayCaptureMask))
-        return false;
-
-    return true;
-}
-#endif // ENABLE(EXTENSION_CAPABILITIES)
-
-#if ENABLE(WRITING_TOOLS)
 
 void WebPageProxy::setWritingToolsActive(bool active)
 {

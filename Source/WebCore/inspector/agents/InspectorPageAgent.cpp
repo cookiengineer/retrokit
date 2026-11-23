@@ -186,7 +186,6 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::disable()
 
     m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::PrivateClickMeasurementDebugModeEnabled, std::nullopt);
     m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::ITPDebugModeEnabled, std::nullopt);
-    m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::MockCaptureDevicesEnabled, std::nullopt);
     m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::NeedsSiteSpecificQuirks, std::nullopt);
 
     return { };

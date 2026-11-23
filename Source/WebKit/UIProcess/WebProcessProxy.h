@@ -130,7 +130,6 @@ class ModelProcessProxy;
 class ProvisionalPageProxy;
 class RemotePageProxy;
 class SuspendedPageProxy;
-class UserMediaCaptureManagerProxy;
 class VisitedLinkStore;
 class WebBackForwardListItem;
 class WebCompiledContentRuleList;
@@ -261,7 +260,6 @@ public:
     static Ref<WebProcessProxy> fromConnection(const IPC::Connection&);
     static WebPageProxy* NODELETE webPage(WebPageProxyIdentifier);
     static WebPageProxy* NODELETE webPage(WebCore::PageIdentifier);
-    static WebPageProxy* NODELETE audioCapturingWebPage();
     Ref<WebPageProxy> createWebPage(PageClient&, Ref<API::PageConfiguration>&&);
 
     enum class BeginsUsingDataStore : bool { No, Yes };
@@ -440,25 +438,6 @@ public:
     void prepareToDropLastAssertion(CompletionHandler<void()>&&) final;
     void didDropLastAssertion() final;
 
-#if PLATFORM(COCOA)
-    enum SandboxExtensionType : uint32_t {
-        None = 0,
-        Video = 1 << 0,
-        Audio = 1 << 1
-    };
-
-    typedef uint32_t MediaCaptureSandboxExtensions;
-
-    bool hasVideoCaptureExtension() const { return m_mediaCaptureSandboxExtensions & Video; }
-    void grantVideoCaptureExtension() { m_mediaCaptureSandboxExtensions |= Video; }
-    void revokeVideoCaptureExtension() { m_mediaCaptureSandboxExtensions &= ~Video; }
-
-    bool hasAudioCaptureExtension() const { return m_mediaCaptureSandboxExtensions & Audio; }
-    void grantAudioCaptureExtension() { m_mediaCaptureSandboxExtensions |= Audio; }
-    void revokeAudioCaptureExtension() { m_mediaCaptureSandboxExtensions &= ~Audio; }
-
-    void sendAudioComponentRegistrations();
-#endif
 
     bool hasSameGPUAndNetworkProcessPreferencesAs(const API::PageConfiguration&) const;
 
@@ -875,7 +854,6 @@ private:
 #endif
 
 #if PLATFORM(COCOA)
-    MediaCaptureSandboxExtensions m_mediaCaptureSandboxExtensions { SandboxExtensionType::None };
 #endif
     RefPtr<Logger> m_logger;
 

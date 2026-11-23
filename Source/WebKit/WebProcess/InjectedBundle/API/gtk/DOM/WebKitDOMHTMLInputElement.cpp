@@ -127,7 +127,6 @@ enum {
     DOM_HTML_INPUT_ELEMENT_PROP_WILL_VALIDATE,
     DOM_HTML_INPUT_ELEMENT_PROP_ALIGN,
     DOM_HTML_INPUT_ELEMENT_PROP_USE_MAP,
-    DOM_HTML_INPUT_ELEMENT_PROP_CAPTURE,
 };
 
 static void webkit_dom_html_input_element_set_property(GObject* object, guint propertyId, const GValue* value, GParamSpec* pspec)
@@ -194,9 +193,6 @@ static void webkit_dom_html_input_element_set_property(GObject* object, guint pr
         break;
     case DOM_HTML_INPUT_ELEMENT_PROP_USE_MAP:
         webkit_dom_html_input_element_set_use_map(self, g_value_get_string(value));
-        break;
-    case DOM_HTML_INPUT_ELEMENT_PROP_CAPTURE:
-        webkit_dom_html_input_element_set_capture_type(self, g_value_get_string(value));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propertyId, pspec);
@@ -277,9 +273,6 @@ static void webkit_dom_html_input_element_get_property(GObject* object, guint pr
         break;
     case DOM_HTML_INPUT_ELEMENT_PROP_USE_MAP:
         g_value_take_string(value, webkit_dom_html_input_element_get_use_map(self));
-        break;
-    case DOM_HTML_INPUT_ELEMENT_PROP_CAPTURE:
-        g_value_take_string(value, webkit_dom_html_input_element_get_capture_type(self));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propertyId, pspec);
@@ -520,16 +513,6 @@ static void webkit_dom_html_input_element_class_init(WebKitDOMHTMLInputElementCl
             "use-map",
             "HTMLInputElement:use-map",
             "read-write gchar* HTMLInputElement:use-map",
-            "",
-            WEBKIT_PARAM_READWRITE));
-
-    g_object_class_install_property(
-        gobjectClass,
-        DOM_HTML_INPUT_ELEMENT_PROP_CAPTURE,
-        g_param_spec_string(
-            "capture",
-            "HTMLInputElement:capture",
-            "read-write gchar* HTMLInputElement:capture",
             "",
             WEBKIT_PARAM_READWRITE));
 
@@ -943,37 +926,6 @@ void webkit_dom_html_input_element_set_use_map(WebKitDOMHTMLInputElement* self, 
     g_return_if_fail(value);
     WebCore::HTMLInputElement* item = WebKit::core(self);
     item->setAttributeWithoutSynchronization(WebCore::HTMLNames::usemapAttr, WTF::AtomString::fromUTF8(value));
-}
-
-gchar* webkit_dom_html_input_element_get_capture_type(WebKitDOMHTMLInputElement* self)
-{
-#if ENABLE(MEDIA_CAPTURE)
-    WebCore::JSMainThreadNullState state;
-    g_return_val_if_fail(WEBKIT_DOM_IS_HTML_INPUT_ELEMENT(self), 0);
-    WebCore::HTMLInputElement* item = WebKit::core(self);
-    gchar* result = convertToUTF8String(item->attributeWithoutSynchronization(WebCore::HTMLNames::captureAttr));
-    return result;
-#else
-    UNUSED_PARAM(self);
-    WEBKIT_WARN_FEATURE_NOT_PRESENT("Media Capture")
-    return 0;
-#endif /* ENABLE(MEDIA_CAPTURE) */
-}
-
-void webkit_dom_html_input_element_set_capture_type(WebKitDOMHTMLInputElement* self, const gchar* value)
-{
-#if ENABLE(MEDIA_CAPTURE)
-    WebCore::JSMainThreadNullState state;
-    g_return_if_fail(WEBKIT_DOM_IS_HTML_INPUT_ELEMENT(self));
-    g_return_if_fail(value);
-    WebCore::HTMLInputElement* item = WebKit::core(self);
-    auto convertedValue = WTF::AtomString::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::captureAttr, convertedValue);
-#else
-    UNUSED_PARAM(self);
-    UNUSED_PARAM(value);
-    WEBKIT_WARN_FEATURE_NOT_PRESENT("Media Capture")
-#endif /* ENABLE(MEDIA_CAPTURE) */
 }
 
 gboolean webkit_dom_html_input_element_is_edited(WebKitDOMHTMLInputElement* input)

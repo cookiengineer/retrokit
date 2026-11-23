@@ -88,10 +88,6 @@ Permissions::~Permissions()
 static bool isAllowedByPermissionsPolicy(const Document& document, PermissionName name)
 {
     switch (name) {
-    case PermissionName::Camera:
-        return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Camera, document, PermissionsPolicy::ShouldReportViolation::No);
-    case PermissionName::Microphone:
-        return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, document, PermissionsPolicy::ShouldReportViolation::No);
     case PermissionName::StorageAccess:
         return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::StorageAccess, document, PermissionsPolicy::ShouldReportViolation::No);
     default:
@@ -115,10 +111,6 @@ std::optional<PermissionQuerySource> Permissions::sourceFromContext(const Script
 
 std::optional<PermissionName> Permissions::toPermissionName(const String& name)
 {
-    if (name == "camera"_s)
-        return PermissionName::Camera;
-    if (name == "microphone"_s)
-        return PermissionName::Microphone;
     if (name == "notifications"_s)
         return PermissionName::Notifications;
     if (name == "push"_s)

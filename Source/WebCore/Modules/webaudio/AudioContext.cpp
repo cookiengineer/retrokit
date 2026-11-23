@@ -80,8 +80,6 @@ static std::optional<float>& NODELETE defaultSampleRateForTesting()
 
 static bool shouldDocumentAllowWebAudioToAutoPlay(const Document& document)
 {
-    if (document.isCapturing())
-        return true;
     RefPtr mainDocument = document.mainFrameDocument();
     if (document.quirks().shouldAutoplayWebAudioForArbitraryUserGesture() && mainDocument && mainDocument->hasHadUserInteraction())
         return true;
@@ -717,7 +715,6 @@ bool AudioContext::shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSess
     RefPtr document = this->document();
     if (!document)
         return false;
-
 
     return hasPlayBackAudioSession(document.get());
 }

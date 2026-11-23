@@ -96,11 +96,6 @@ void GPUConnectionToWebProcess::setMediaPlaybackEnvironment(WebCore::PageIdentif
         m_mediaPlaybackEnvironments.set(pageIdentifier, mediaPlaybackEnvironment);
 }
 
-String GPUConnectionToWebProcess::displayCaptureEnvironment(WebCore::PageIdentifier pageIdentifier)
-{
-    return m_displayCaptureEnvironments.get(pageIdentifier);
-}
-
 void GPUConnectionToWebProcess::setDisplayCaptureEnvironment(WebCore::PageIdentifier pageIdentifier, const String& displayCaptureEnvironment)
 {
     if (displayCaptureEnvironment.isEmpty())

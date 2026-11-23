@@ -1408,11 +1408,6 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
     return _pageConfiguration->allowMediaContentTypesRequiringHardwareSupportAsFallback();
 }
 
-- (BOOL)_mediaCaptureEnabled
-{
-    return _pageConfiguration->mediaCaptureEnabled();
-}
-
 - (void)_setMediaCaptureEnabled:(BOOL)enabled
 {
     _pageConfiguration->setMediaCaptureEnabled(enabled);

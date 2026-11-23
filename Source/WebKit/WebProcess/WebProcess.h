@@ -154,7 +154,6 @@ class WebFrame;
 class WebLoaderStrategy;
 class WebNotificationManager;
 class WebPage;
-class UserMediaCaptureManager;
 class WebPageGroupProxy;
 class WebProcessSupplement;
 class WebTransportSession;

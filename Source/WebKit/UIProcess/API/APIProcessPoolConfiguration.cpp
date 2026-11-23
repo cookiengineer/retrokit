@@ -58,7 +58,6 @@ Ref<ProcessPoolConfiguration> ProcessPoolConfiguration::copy()
     copy->m_shouldThrowExceptionForGlobalConstantRedeclaration = this->m_shouldThrowExceptionForGlobalConstantRedeclaration;
     copy->m_alwaysRunsAtBackgroundPriority = this->m_alwaysRunsAtBackgroundPriority;
     copy->m_shouldTakeUIBackgroundAssertion = this->m_shouldTakeUIBackgroundAssertion;
-    copy->m_shouldCaptureDisplayInUIProcess = this->m_shouldCaptureDisplayInUIProcess;
     copy->m_shouldConfigureJSCForTesting = this->m_shouldConfigureJSCForTesting;
     copy->m_isJITEnabled = this->m_isJITEnabled;
     copy->m_presentingApplicationPID = this->m_presentingApplicationPID;

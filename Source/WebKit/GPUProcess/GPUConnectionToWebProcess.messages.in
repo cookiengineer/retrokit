@@ -65,7 +65,6 @@ messages -> GPUConnectionToWebProcess WantsDispatchMessage {
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     SetMediaPlaybackEnvironment(WebCore::PageIdentifier pageIdentifier, String environment);
-    SetDisplayCaptureEnvironment(WebCore::PageIdentifier pageIdentifier, String environment);
 #endif
 
 #if ENABLE(IPC_TESTING_API)

@@ -29,6 +29,5 @@
     IsVisuallyIdle
     IsAudible
     IsLoading
-    IsCapturingMedia
     IsConnectedToHardwareConsole
 }

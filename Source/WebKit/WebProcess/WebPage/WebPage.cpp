@@ -681,7 +681,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     , m_forceAlwaysUserScalable(parameters.ignoresViewportScaleLimits)
 #endif
 #if PLATFORM(IOS_FAMILY)
-    , m_screenIsBeingCaptured(parameters.isCapturingScreen)
     , m_screenSize(parameters.screenSize)
     , m_availableScreenSize(parameters.availableScreenSize)
     , m_overrideScreenSize(parameters.overrideScreenSize)
@@ -1433,8 +1432,6 @@ void WebPage::gpuProcessConnectionDidBecomeAvailable(GPUProcessConnection& gpuPr
     if (!mediaPlaybackEnvironment().isEmpty())
         gpuProcessConnection.setMediaPlaybackEnvironment(identifier(), mediaPlaybackEnvironment());
 
-    if (!displayCaptureEnvironment().isEmpty())
-        gpuProcessConnection.setDisplayCaptureEnvironment(identifier(), displayCaptureEnvironment());
 #endif
 }
 
@@ -1585,7 +1582,7 @@ void WebPage::updateThrottleState()
 
 bool WebPage::isThrottleable() const
 {
-    bool isActive = m_activityState.containsAny({ ActivityState::IsLoading, ActivityState::IsAudible, ActivityState::IsCapturingMedia, ActivityState::WindowIsActive });
+    bool isActive = m_activityState.containsAny({ ActivityState::IsLoading, ActivityState::IsAudible, ActivityState::WindowIsActive });
     bool isVisuallyIdle = m_activityState.contains(ActivityState::IsVisuallyIdle);
 
     return m_isAppNapEnabled && !isActive && isVisuallyIdle;
@@ -1637,7 +1634,6 @@ WebPage::~WebPage()
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     setMediaPlaybackEnvironment({ });
-    setDisplayCaptureEnvironment({ });
 #endif
 }
 
@@ -7184,11 +7180,6 @@ void WebPage::setMediaVolume(float volume)
 void WebPage::setMuted(MediaProducerMutedStateFlags state, CompletionHandler<void()>&& completionHandler)
 {
     protect(corePage())->setMuted(state);
-    completionHandler();
-}
-
-void WebPage::stopMediaCapture(MediaProducerMediaCaptureKind kind, CompletionHandler<void()>&& completionHandler)
-{
     completionHandler();
 }
 

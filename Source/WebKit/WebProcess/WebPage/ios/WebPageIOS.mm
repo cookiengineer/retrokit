@@ -4639,11 +4639,6 @@ void WebPage::setShouldRevealCurrentSelectionAfterInsertion(bool shouldRevealCur
     scheduleFullEditorStateUpdate();
 }
 
-void WebPage::setScreenIsBeingCaptured(bool captured)
-{
-    m_screenIsBeingCaptured = captured;
-}
-
 void WebPage::setInsertionPointColor(WebCore::Color color)
 {
     RenderThemeIOS::setInsertionPointColor(color);

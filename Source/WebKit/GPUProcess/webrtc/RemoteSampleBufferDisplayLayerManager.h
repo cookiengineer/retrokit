@@ -25,3 +25,75 @@
 
 #pragma once
 
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+
+#include "Connection.h"
+#include "LayerHostingContext.h"
+#include "SampleBufferDisplayLayerIdentifier.h"
+#include "SharedPreferencesForWebProcess.h"
+#include "WorkQueueMessageReceiver.h"
+#include <WebCore/FloatRect.h>
+#include <WebCore/IntSize.h>
+#include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
+#include <wtf/WorkQueue.h>
+
+namespace IPC {
+class Decoder;
+}
+
+namespace WebCore {
+class IntSize;
+}
+
+namespace WebKit {
+
+class GPUConnectionToWebProcess;
+class RemoteSampleBufferDisplayLayer;
+
+class RemoteSampleBufferDisplayLayerManager final : public IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteSampleBufferDisplayLayerManager);
+public:
+    static Ref<RemoteSampleBufferDisplayLayerManager> create(GPUConnectionToWebProcess& connection, SharedPreferencesForWebProcess& sharedPreferencesForWebProcess)
+    {
+        auto instance = adoptRef(*new RemoteSampleBufferDisplayLayerManager(connection, sharedPreferencesForWebProcess));
+        instance->startListeningForIPC();
+        return instance;
+    }
+    ~RemoteSampleBufferDisplayLayerManager();
+
+    void ref() const final { IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>::ref(); }
+    void deref() const final { IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>::deref(); }
+
+    void close();
+
+    bool allowsExitUnderMemoryPressure() const;
+    void updateSampleBufferDisplayLayerBoundsAndPosition(SampleBufferDisplayLayerIdentifier, WebCore::FloatRect, std::optional<MachSendRightAnnotated>&&);
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_sharedPreferencesForWebProcess; }
+    void updateSharedPreferencesForWebProcess(SharedPreferencesForWebProcess);
+
+private:
+    explicit RemoteSampleBufferDisplayLayerManager(GPUConnectionToWebProcess&, SharedPreferencesForWebProcess&);
+    void startListeningForIPC();
+
+    // IPC::WorkQueueMessageReceiver overrides.
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+
+    bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
+
+    using LayerCreationCallback = CompletionHandler<void(WebCore::HostingContext)>&&;
+    void createLayer(SampleBufferDisplayLayerIdentifier, bool hideRootLayer, WebCore::IntSize, bool shouldMaintainAspectRatio, bool canShowWhileLocked, LayerCreationCallback);
+    void releaseLayer(SampleBufferDisplayLayerIdentifier);
+
+    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_connectionToWebProcess;
+    const Ref<IPC::Connection> m_connection;
+    SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
+    const Ref<WorkQueue> m_queue;
+    mutable Lock m_layersLock;
+    HashMap<SampleBufferDisplayLayerIdentifier, Ref<RemoteSampleBufferDisplayLayer>> m_layers WTF_GUARDED_BY_LOCK(m_layersLock);
+};
+
+}
+
+#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
