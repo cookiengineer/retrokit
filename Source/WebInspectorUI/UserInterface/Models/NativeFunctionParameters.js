@@ -1607,16 +1607,6 @@ WI.NativePrototypeFunctionParameters = {
         __proto__: null,
     },
 
-    SpeechSynthesis: {
-        speak: "utterance",
-        __proto__: null,
-    },
-
-    SpeechSynthesisUtterance: {
-        /* EventTarget */
-        __proto__: null,
-    },
-
     Storage: {
         getItem: "key",
         key: "index",

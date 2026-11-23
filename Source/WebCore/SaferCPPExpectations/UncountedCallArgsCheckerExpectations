@@ -10,7 +10,6 @@ Modules/mediastream/RTCRtpReceiver.cpp
 Modules/mediastream/RTCRtpSender.cpp
 Modules/mediastream/libwebrtc/LibWebRTCObservers.h
 Modules/pictureinpicture/HTMLVideoElementPictureInPicture.cpp
-Modules/speech/SpeechSynthesis.cpp
 Modules/webaudio/AnalyserNode.cpp
 Modules/webaudio/AudioBasicInspectorNode.cpp
 Modules/webaudio/AudioBuffer.cpp
